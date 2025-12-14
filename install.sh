@@ -62,24 +62,71 @@ check_system() {
     fi
     
     PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
-    REQUIRED_VERSION="8.1"
+    PHP_MINOR=$(php -r 'echo PHP_VERSION;' | cut -d. -f2)
     
-    if (( $(echo "$PHP_VERSION < $REQUIRED_VERSION" | bc -l) )); then
-        log_error "PHP 8.1 or higher is required. Found: $PHP_VERSION"
+    if [ "$PHP_MINOR" -lt 2 ]; then
+        log_error "PHP 8.2 or higher is required. Found: $(php -r 'echo PHP_VERSION;')"
         exit 1
+    fi
+    
+    REQUIRED_EXTENSIONS=("bcmath" "ctype" "curl" "dom" "fileinfo" "gd" "hash" "iconv" "intl" "json" "mbstring" "openssl" "pdo" "pdo_mysql" "pdo_pgsql" "pdo_sqlite" "session" "tokenizer" "xml" "zip")
+    
+    log_info "Checking PHP extensions..."
+    MISSING_EXTENSIONS=()
+    for ext in "${REQUIRED_EXTENSIONS[@]}"; do
+        if ! php -m | grep -q "^$ext$"; then
+            MISSING_EXTENSIONS+=("$ext")
+        fi
+    done
+    
+    if [ ${#MISSING_EXTENSIONS[@]} -gt 0 ]; then
+        log_warning "Missing PHP extensions: ${MISSING_EXTENSIONS[*]}"
+        log_info "Installing missing PHP extensions..."
+        if command -v apt-get &> /dev/null; then
+            apt-get update
+            for ext in "${MISSING_EXTENSIONS[@]}"; do
+                apt-get install -y "php${PHP_VERSION}-${ext}" 2>/dev/null || apt-get install -y "php-${ext}" 2>/dev/null || log_warning "Failed to install php-${ext}"
+            done
+        elif command -v yum &> /dev/null || command -v dnf &> /dev/null; then
+            PKG_MGR=$(command -v dnf || command -v yum)
+            for ext in "${MISSING_EXTENSIONS[@]}"; do
+                $PKG_MGR install -y "php-${ext}" 2>/dev/null || log_warning "Failed to install php-${ext}"
+            done
+        fi
     fi
     
     if ! command -v composer &> /dev/null; then
         log_warning "Composer not found, installing..."
-        curl -sS https://getcomposer.org/installer | php
-        mv composer.phar /usr/local/bin/composer
+        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
+            log_error "Failed to install Composer"
+            exit 1
+        }
         chmod +x /usr/local/bin/composer
+    fi
+    
+    if ! command -v git &> /dev/null; then
+        log_warning "git not found, installing..."
+        if command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y git
+        elif command -v yum &> /dev/null; then
+            yum install -y git
+        elif command -v dnf &> /dev/null; then
+            dnf install -y git
+        fi
     fi
     
     if ! command -v node &> /dev/null; then
         log_warning "Node.js not found, installing..."
-        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-        apt-get install -y nodejs
+        if command -v apt-get &> /dev/null; then
+            curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+            apt-get install -y nodejs
+        elif command -v yum &> /dev/null; then
+            curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
+            yum install -y nodejs
+        elif command -v dnf &> /dev/null; then
+            curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
+            dnf install -y nodejs
+        fi
     fi
     
     if ! command -v npm &> /dev/null; then
@@ -114,10 +161,19 @@ install_pelican() {
     
     log_info "Cloning Pelican Panel repository..."
     if command -v git &> /dev/null; then
-        git clone https://github.com/pelican-dev/panel.git "$PANEL_DIR" || {
-            log_error "Failed to clone Pelican Panel repository"
-            exit 1
-        }
+        if [ -d "$PANEL_DIR/.git" ]; then
+            log_warning "Repository already exists, pulling latest changes..."
+            cd "$PANEL_DIR"
+            sudo -u "$SERVICE_USER" git pull || {
+                log_error "Failed to pull latest changes"
+                exit 1
+            }
+        else
+            git clone https://github.com/pelican-dev/panel.git "$PANEL_DIR" || {
+                log_error "Failed to clone Pelican Panel repository"
+                exit 1
+            }
+        fi
     else
         log_error "git is required but not installed"
         exit 1
@@ -136,10 +192,16 @@ install_dependencies() {
     log_info "Installing PHP dependencies..."
     cd "$PANEL_DIR"
     
-    sudo -u "$SERVICE_USER" composer install --no-dev --optimize-autoloader --no-interaction
+    COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$SERVICE_USER" composer install --no-dev --optimize-autoloader --no-interaction || {
+        log_error "Failed to install PHP dependencies"
+        exit 1
+    }
     
     log_info "Installing Node.js dependencies..."
-    sudo -u "$SERVICE_USER" npm ci --only=production
+    sudo -u "$SERVICE_USER" npm ci --only=production || {
+        log_error "Failed to install Node.js dependencies"
+        exit 1
+    }
     
     log_success "Dependencies installed"
 }
@@ -150,12 +212,17 @@ setup_environment() {
     
     if [ ! -f .env ]; then
         log_info "Creating .env file..."
-        sudo -u "$SERVICE_USER" cp .env.example .env
-        
-        APP_KEY=$(sudo -u "$SERVICE_USER" php artisan key:generate --show 2>/dev/null || echo "")
-        if [ -n "$APP_KEY" ]; then
-            sudo -u "$SERVICE_USER" php artisan key:generate --force
+        if [ -f .env.example ]; then
+            sudo -u "$SERVICE_USER" cp .env.example .env
+        else
+            log_warning ".env.example not found, creating basic .env file..."
+            sudo -u "$SERVICE_USER" touch .env
         fi
+        
+        log_info "Generating application key..."
+        sudo -u "$SERVICE_USER" php artisan key:generate --force || {
+            log_warning "Failed to generate application key, you may need to run it manually"
+        }
     else
         log_warning ".env file already exists"
     fi
