@@ -53,6 +53,29 @@ check_root() {
 }
 
 get_user_input() {
+    if [ ! -t 0 ]; then
+        log_info "Non-interactive mode detected, using auto-generated values"
+        DOMAIN=$(hostname -f 2>/dev/null || hostname -I | awk '{print $1}' || echo "localhost")
+        DB_NAME="pelican"
+        DB_USER="pelican"
+        DB_PASS=$(generate_password)
+        ADMIN_EMAIL="admin@pelican.local"
+        ADMIN_USERNAME="admin"
+        ADMIN_PASSWORD=$(generate_password)
+        INSTALL_WINGS=true
+        WINGS_TOKEN=""
+        PANEL_URL="http://$DOMAIN"
+        
+        log_info "Configuration:"
+        log_info "  Domain: $DOMAIN"
+        log_info "  Database: $DB_NAME"
+        log_info "  Database User: $DB_USER"
+        log_info "  Admin Email: $ADMIN_EMAIL"
+        log_info "  Admin Username: $ADMIN_USERNAME"
+        log_info "  Install Wings: $INSTALL_WINGS"
+        return
+    fi
+    
     log_info "Please provide the following information:"
     echo ""
     
@@ -176,8 +199,20 @@ detect_os() {
                 fi
                 log_info "Assuming RHEL-based system, using $PKG_MANAGER"
             else
-                log_error "Cannot determine package manager for $OS_TYPE"
-                exit 1
+                log_warning "Unknown OS type, attempting to detect package manager..."
+                if command -v apt-get &> /dev/null; then
+                    PKG_MANAGER="apt"
+                    log_info "Detected apt package manager"
+                elif command -v dnf &> /dev/null; then
+                    PKG_MANAGER="dnf"
+                    log_info "Detected dnf package manager"
+                elif command -v yum &> /dev/null; then
+                    PKG_MANAGER="yum"
+                    log_info "Detected yum package manager"
+                else
+                    log_error "Cannot determine package manager for $OS_TYPE"
+                    exit 1
+                fi
             fi
             ;;
     esac
