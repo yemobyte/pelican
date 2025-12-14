@@ -53,37 +53,15 @@ check_root() {
 }
 
 get_user_input() {
-    if [ ! -t 0 ] || [ -z "$PS1" ]; then
-        log_info "Non-interactive mode detected, using auto-generated values"
-        DOMAIN=$(hostname -f 2>/dev/null || hostname -I | awk '{print $1}' || echo "localhost")
-        DB_NAME="pelican"
-        DB_USER="pelican"
-        DB_PASS=$(generate_password)
-        ADMIN_EMAIL="admin@pelican.local"
-        ADMIN_USERNAME="admin"
-        ADMIN_PASSWORD=$(generate_password)
-        INSTALL_WINGS=true
-        WINGS_TOKEN=""
-        PANEL_URL="http://$DOMAIN"
-        
-        log_info "Configuration:"
-        log_info "  Domain: $DOMAIN"
-        log_info "  Database: $DB_NAME"
-        log_info "  Database User: $DB_USER"
-        log_info "  Admin Email: $ADMIN_EMAIL"
-        log_info "  Admin Username: $ADMIN_USERNAME"
-        log_info "  Install Wings: $INSTALL_WINGS"
-        return
-    fi
-    
     log_info "Please provide the following information:"
     echo ""
     
-    read -p "Domain name (or IP address): " DOMAIN
-    if [ -z "$DOMAIN" ]; then
-        DOMAIN=$(hostname -I | awk '{print $1}')
-        log_info "Using IP address: $DOMAIN"
-    fi
+    while [ -z "$DOMAIN" ]; do
+        read -p "Domain name (or IP address) [required]: " DOMAIN
+        if [ -z "$DOMAIN" ]; then
+            log_error "Domain is required! Please enter your domain or IP address."
+        fi
+    done
     
     echo ""
     log_info "Database Configuration:"
@@ -618,10 +596,20 @@ build_panel_assets() {
         if ! command -v npm &> /dev/null; then
             install_nodejs
         fi
-        sudo -u "$SERVICE_USER" npm ci --only=production || {
-            log_warning "Failed to install Node.js dependencies, skipping build"
-            return
-        }
+        if [ -f package-lock.json ]; then
+            sudo -u "$SERVICE_USER" npm ci --only=production || {
+                log_warning "Failed to install Node.js dependencies with npm ci, trying npm install"
+                sudo -u "$SERVICE_USER" npm install --only=production || {
+                    log_warning "Failed to install Node.js dependencies, skipping build"
+                    return
+                }
+            }
+        else
+            sudo -u "$SERVICE_USER" npm install --only=production || {
+                log_warning "Failed to install Node.js dependencies, skipping build"
+                return
+            }
+        fi
         sudo -u "$SERVICE_USER" npm run build || {
             log_warning "Failed to build assets"
         }
@@ -833,7 +821,19 @@ EOF
         ln -sf /etc/nginx/sites-available/pelican.conf /etc/nginx/sites-enabled/
     fi
     
-    nginx -t && systemctl reload nginx
+    nginx -t || {
+        log_error "Nginx configuration test failed"
+        exit 1
+    }
+    
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
+    else
+        systemctl start nginx || {
+            log_error "Failed to start nginx"
+            exit 1
+        }
+    fi
     
     log_success "Nginx configured"
     
@@ -909,8 +909,6 @@ create_admin_user() {
     sudo -u "$SERVICE_USER" php artisan p:user:make \
         --email "$ADMIN_EMAIL" \
         --username "$ADMIN_USERNAME" \
-        --name-first "Admin" \
-        --name-last "User" \
         --password "$ADMIN_PASSWORD" \
         --admin || {
         log_warning "Failed to create admin user automatically"
