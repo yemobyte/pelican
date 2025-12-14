@@ -151,10 +151,8 @@ install_php_extensions() {
     log_info "Checking PHP extensions..."
     
     PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
-    PHP_FULL_VERSION=$(php -r 'echo PHP_VERSION;')
     
     REQUIRED_EXTENSIONS=("bcmath" "ctype" "curl" "dom" "fileinfo" "gd" "hash" "iconv" "intl" "json" "mbstring" "openssl" "session" "tokenizer" "xml" "zip")
-    REQUIRED_PDO_EXTENSIONS=("pdo_mysql" "pdo_pgsql" "pdo_sqlite")
     
     MISSING_EXTENSIONS=()
     for ext in "${REQUIRED_EXTENSIONS[@]}"; do
@@ -163,105 +161,124 @@ install_php_extensions() {
         fi
     done
     
-    MISSING_PDO_EXTENSIONS=()
-    for ext in "${REQUIRED_PDO_EXTENSIONS[@]}"; do
-        if ! php -m | grep -q "^$ext$"; then
-            MISSING_PDO_EXTENSIONS+=("$ext")
-        fi
-    done
+    PDO_MYSQL_MISSING=false
+    PDO_PGSQL_MISSING=false
+    PDO_SQLITE_MISSING=false
     
-    if [ ${#MISSING_EXTENSIONS[@]} -gt 0 ] || [ ${#MISSING_PDO_EXTENSIONS[@]} -gt 0 ]; then
+    if ! php -m | grep -q "^pdo_mysql$"; then
+        PDO_MYSQL_MISSING=true
+    fi
+    if ! php -m | grep -q "^pdo_pgsql$"; then
+        PDO_PGSQL_MISSING=true
+    fi
+    if ! php -m | grep -q "^pdo_sqlite$"; then
+        PDO_SQLITE_MISSING=true
+    fi
+    
+    if [ ${#MISSING_EXTENSIONS[@]} -gt 0 ] || [ "$PDO_MYSQL_MISSING" = true ] || [ "$PDO_PGSQL_MISSING" = true ] || [ "$PDO_SQLITE_MISSING" = true ]; then
         if [ ${#MISSING_EXTENSIONS[@]} -gt 0 ]; then
             log_warning "Missing PHP extensions: ${MISSING_EXTENSIONS[*]}"
         fi
-        if [ ${#MISSING_PDO_EXTENSIONS[@]} -gt 0 ]; then
-            log_warning "Missing PDO extensions: ${MISSING_PDO_EXTENSIONS[*]}"
+        if [ "$PDO_MYSQL_MISSING" = true ] || [ "$PDO_PGSQL_MISSING" = true ] || [ "$PDO_SQLITE_MISSING" = true ]; then
+            PDO_MISSING_LIST=()
+            [ "$PDO_MYSQL_MISSING" = true ] && PDO_MISSING_LIST+=("pdo_mysql")
+            [ "$PDO_PGSQL_MISSING" = true ] && PDO_MISSING_LIST+=("pdo_pgsql")
+            [ "$PDO_SQLITE_MISSING" = true ] && PDO_MISSING_LIST+=("pdo_sqlite")
+            log_warning "Missing PDO extensions: ${PDO_MISSING_LIST[*]}"
         fi
         log_info "Installing missing PHP extensions..."
         
         case "$PKG_MANAGER" in
             apt)
+                apt-get update
+                
                 for ext in "${MISSING_EXTENSIONS[@]}"; do
-                    if apt-get install -y "php${PHP_VERSION}-${ext}" 2>/dev/null; then
+                    if apt-get install -y "php${PHP_VERSION}-${ext}" >/dev/null 2>&1; then
                         log_info "Installed php${PHP_VERSION}-${ext}"
-                    elif apt-get install -y "php-${ext}" 2>/dev/null; then
+                    elif apt-get install -y "php-${ext}" >/dev/null 2>&1; then
                         log_info "Installed php-${ext}"
                     else
                         log_warning "Failed to install php-${ext}"
                     fi
                 done
                 
-                for ext in "${MISSING_PDO_EXTENSIONS[@]}"; do
-                    case "$ext" in
-                        pdo_mysql)
-                            if apt-get install -y "php${PHP_VERSION}-mysql" 2>/dev/null; then
-                                log_info "Installed php${PHP_VERSION}-mysql"
-                            else
-                                log_warning "Failed to install php-mysql"
-                            fi
-                            ;;
-                        pdo_pgsql)
-                            if apt-get install -y "php${PHP_VERSION}-pgsql" 2>/dev/null; then
-                                log_info "Installed php${PHP_VERSION}-pgsql"
-                            else
-                                log_warning "Failed to install php-pgsql"
-                            fi
-                            ;;
-                        pdo_sqlite)
-                            if apt-get install -y "php${PHP_VERSION}-sqlite3" 2>/dev/null; then
-                                log_info "Installed php${PHP_VERSION}-sqlite3"
-                            else
-                                log_warning "Failed to install php-sqlite3"
-                            fi
-                            ;;
-                    esac
-                done
+                if [ "$PDO_MYSQL_MISSING" = true ]; then
+                    if apt-get install -y "php${PHP_VERSION}-mysql" >/dev/null 2>&1; then
+                        log_info "Installed php${PHP_VERSION}-mysql (pdo_mysql)"
+                    else
+                        log_warning "Failed to install php${PHP_VERSION}-mysql"
+                    fi
+                fi
+                
+                if [ "$PDO_PGSQL_MISSING" = true ]; then
+                    if apt-get install -y "php${PHP_VERSION}-pgsql" >/dev/null 2>&1; then
+                        log_info "Installed php${PHP_VERSION}-pgsql (pdo_pgsql)"
+                    else
+                        log_warning "Failed to install php${PHP_VERSION}-pgsql"
+                    fi
+                fi
+                
+                if [ "$PDO_SQLITE_MISSING" = true ]; then
+                    if apt-get install -y "php${PHP_VERSION}-sqlite3" >/dev/null 2>&1; then
+                        log_info "Installed php${PHP_VERSION}-sqlite3 (pdo_sqlite)"
+                    else
+                        log_warning "Failed to install php${PHP_VERSION}-sqlite3"
+                    fi
+                fi
                 ;;
             dnf|yum)
                 for ext in "${MISSING_EXTENSIONS[@]}"; do
-                    if $PKG_MANAGER install -y "php-${ext}" 2>/dev/null; then
+                    if $PKG_MANAGER install -y "php-${ext}" >/dev/null 2>&1; then
                         log_info "Installed php-${ext}"
                     else
                         log_warning "Failed to install php-${ext}"
                     fi
                 done
                 
-                for ext in "${MISSING_PDO_EXTENSIONS[@]}"; do
-                    case "$ext" in
-                        pdo_mysql)
-                            if $PKG_MANAGER install -y "php-mysqlnd" 2>/dev/null; then
-                                log_info "Installed php-mysqlnd"
-                            else
-                                log_warning "Failed to install php-mysqlnd"
-                            fi
-                            ;;
-                        pdo_pgsql)
-                            if $PKG_MANAGER install -y "php-pgsql" 2>/dev/null; then
-                                log_info "Installed php-pgsql"
-                            else
-                                log_warning "Failed to install php-pgsql"
-                            fi
-                            ;;
-                        pdo_sqlite)
-                            if $PKG_MANAGER install -y "php-sqlite3" 2>/dev/null; then
-                                log_info "Installed php-sqlite3"
-                            else
-                                log_warning "Failed to install php-sqlite3"
-                            fi
-                            ;;
-                    esac
-                done
+                if [ "$PDO_MYSQL_MISSING" = true ]; then
+                    if $PKG_MANAGER install -y "php-mysqlnd" >/dev/null 2>&1; then
+                        log_info "Installed php-mysqlnd (pdo_mysql)"
+                    else
+                        log_warning "Failed to install php-mysqlnd"
+                    fi
+                fi
+                
+                if [ "$PDO_PGSQL_MISSING" = true ]; then
+                    if $PKG_MANAGER install -y "php-pgsql" >/dev/null 2>&1; then
+                        log_info "Installed php-pgsql (pdo_pgsql)"
+                    else
+                        log_warning "Failed to install php-pgsql"
+                    fi
+                fi
+                
+                if [ "$PDO_SQLITE_MISSING" = true ]; then
+                    if $PKG_MANAGER install -y "php-sqlite3" >/dev/null 2>&1; then
+                        log_info "Installed php-sqlite3 (pdo_sqlite)"
+                    else
+                        log_warning "Failed to install php-sqlite3"
+                    fi
+                fi
                 ;;
         esac
     fi
     
     log_info "Verifying PHP extensions..."
     FINAL_MISSING=()
-    for ext in "${REQUIRED_EXTENSIONS[@]}" "${REQUIRED_PDO_EXTENSIONS[@]}"; do
+    for ext in "${REQUIRED_EXTENSIONS[@]}"; do
         if ! php -m | grep -q "^$ext$"; then
             FINAL_MISSING+=("$ext")
         fi
     done
+    
+    if ! php -m | grep -q "^pdo_mysql$"; then
+        FINAL_MISSING+=("pdo_mysql")
+    fi
+    if ! php -m | grep -q "^pdo_pgsql$"; then
+        FINAL_MISSING+=("pdo_pgsql")
+    fi
+    if ! php -m | grep -q "^pdo_sqlite$"; then
+        FINAL_MISSING+=("pdo_sqlite")
+    fi
     
     if [ ${#FINAL_MISSING[@]} -gt 0 ]; then
         log_warning "Still missing extensions: ${FINAL_MISSING[*]}"
