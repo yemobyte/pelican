@@ -532,25 +532,59 @@ create_user() {
 install_panel() {
     info "Installing Pelican Panel..."
     
-    mkdir -p "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
-    
-    if [ -d "$PANEL_DIR" ] && [ "$(ls -A $PANEL_DIR)" ]; then
+    if [ -d "$PANEL_DIR" ] && [ "$(ls -A $PANEL_DIR 2>/dev/null)" ]; then
         warning "Panel directory already exists, backing up..."
         mv "$PANEL_DIR" "${PANEL_DIR}.backup.$(date +%Y%m%d_%H%M%S)"
-        mkdir -p "$PANEL_DIR"
     fi
     
+    mkdir -p "$PANEL_DIR"
+    
+    TEMP_DIR=$(mktemp -d)
+    cd "$TEMP_DIR"
+    
     info "Downloading Pelican Panel..."
-    curl -L https://github.com/pelican-dev/panel/releases/latest/download/panel.tar.gz | tar -xzv || {
+    curl -L -o panel.tar.gz https://github.com/pelican-dev/panel/releases/latest/download/panel.tar.gz || {
         error "Failed to download Pelican Panel"
+        rm -rf "$TEMP_DIR"
         exit 1
     }
+    
+    info "Extracting Pelican Panel..."
+    tar -xzf panel.tar.gz || {
+        error "Failed to extract Pelican Panel"
+        rm -rf "$TEMP_DIR"
+        exit 1
+    }
+    
+    if [ -d "panel" ]; then
+        mv panel/* "$PANEL_DIR/" 2>/dev/null || cp -r panel/* "$PANEL_DIR/"
+        mv panel/.* "$PANEL_DIR/" 2>/dev/null || true
+    elif [ -f "composer.json" ]; then
+        mv * "$PANEL_DIR/" 2>/dev/null || cp -r * "$PANEL_DIR/"
+        mv .* "$PANEL_DIR/" 2>/dev/null || true
+    else
+        EXTRACTED_DIR=$(find . -maxdepth 1 -type d ! -name . | head -1)
+        if [ -n "$EXTRACTED_DIR" ] && [ -f "$EXTRACTED_DIR/composer.json" ]; then
+            mv "$EXTRACTED_DIR"/* "$PANEL_DIR/" 2>/dev/null || cp -r "$EXTRACTED_DIR"/* "$PANEL_DIR/"
+            mv "$EXTRACTED_DIR"/.* "$PANEL_DIR/" 2>/dev/null || true
+        else
+            error "Could not find panel files in extracted archive"
+            rm -rf "$TEMP_DIR"
+            exit 1
+        fi
+    fi
+    
+    rm -rf "$TEMP_DIR"
+    
+    if [ ! -f "$PANEL_DIR/composer.json" ]; then
+        error "composer.json not found after extraction. Panel installation may have failed."
+        exit 1
+    fi
     
     chown -R "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR"
     chmod -R 755 "$PANEL_DIR"
     
-    success "Pelican Panel downloaded"
+    success "Pelican Panel downloaded and extracted"
 }
 
 install_panel_dependencies() {
