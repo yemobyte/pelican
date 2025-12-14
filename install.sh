@@ -123,15 +123,21 @@ install_php() {
     
     case "$PKG_MANAGER" in
         apt)
-            add-apt-repository -y ppa:ondrej/php
+            if ! grep -q "ondrej/php" /etc/apt/sources.list.d/*.list 2>/dev/null; then
+                add-apt-repository -y ppa:ondrej/php
+            fi
             apt-get update
             apt-get install -y php8.2 php8.2-cli php8.2-fpm php8.2-common php8.2-mysql php8.2-zip php8.2-gd php8.2-mbstring php8.2-curl php8.2-xml php8.2-bcmath php8.2-intl php8.2-pgsql php8.2-sqlite3
             ;;
         dnf|yum)
             if [ "$OS_TYPE" == "almalinux" ] || [ "$OS_TYPE" == "rocky" ] || [ "$OS_TYPE" == "centos" ]; then
-                $PKG_MANAGER install -y epel-release
-                $PKG_MANAGER install -y https://rpms.remirepo.net/enterprise/remi-release-${OS_VERSION}.rpm
-                $PKG_MANAGER module reset php -y
+                if ! rpm -q epel-release &>/dev/null; then
+                    $PKG_MANAGER install -y epel-release
+                fi
+                if [ ! -f /etc/yum.repos.d/remi.repo ]; then
+                    $PKG_MANAGER install -y https://rpms.remirepo.net/enterprise/remi-release-${OS_VERSION}.rpm
+                fi
+                $PKG_MANAGER module reset php -y 2>/dev/null || true
                 $PKG_MANAGER module enable php:remi-8.2 -y
                 $PKG_MANAGER install -y php php-cli php-fpm php-common php-mysqlnd php-zip php-gd php-mbstring php-curl php-xml php-bcmath php-intl php-pgsql php-sqlite3
             fi
@@ -145,7 +151,10 @@ install_php_extensions() {
     log_info "Checking PHP extensions..."
     
     PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
-    REQUIRED_EXTENSIONS=("bcmath" "ctype" "curl" "dom" "fileinfo" "gd" "hash" "iconv" "intl" "json" "mbstring" "openssl" "pdo" "pdo_mysql" "pdo_pgsql" "pdo_sqlite" "session" "tokenizer" "xml" "zip")
+    PHP_FULL_VERSION=$(php -r 'echo PHP_VERSION;')
+    
+    REQUIRED_EXTENSIONS=("bcmath" "ctype" "curl" "dom" "fileinfo" "gd" "hash" "iconv" "intl" "json" "mbstring" "openssl" "session" "tokenizer" "xml" "zip")
+    REQUIRED_PDO_EXTENSIONS=("pdo_mysql" "pdo_pgsql" "pdo_sqlite")
     
     MISSING_EXTENSIONS=()
     for ext in "${REQUIRED_EXTENSIONS[@]}"; do
@@ -154,25 +163,112 @@ install_php_extensions() {
         fi
     done
     
-    if [ ${#MISSING_EXTENSIONS[@]} -gt 0 ]; then
-        log_warning "Missing PHP extensions: ${MISSING_EXTENSIONS[*]}"
+    MISSING_PDO_EXTENSIONS=()
+    for ext in "${REQUIRED_PDO_EXTENSIONS[@]}"; do
+        if ! php -m | grep -q "^$ext$"; then
+            MISSING_PDO_EXTENSIONS+=("$ext")
+        fi
+    done
+    
+    if [ ${#MISSING_EXTENSIONS[@]} -gt 0 ] || [ ${#MISSING_PDO_EXTENSIONS[@]} -gt 0 ]; then
+        if [ ${#MISSING_EXTENSIONS[@]} -gt 0 ]; then
+            log_warning "Missing PHP extensions: ${MISSING_EXTENSIONS[*]}"
+        fi
+        if [ ${#MISSING_PDO_EXTENSIONS[@]} -gt 0 ]; then
+            log_warning "Missing PDO extensions: ${MISSING_PDO_EXTENSIONS[*]}"
+        fi
         log_info "Installing missing PHP extensions..."
         
         case "$PKG_MANAGER" in
             apt)
                 for ext in "${MISSING_EXTENSIONS[@]}"; do
-                    apt-get install -y "php${PHP_VERSION}-${ext}" 2>/dev/null || apt-get install -y "php-${ext}" 2>/dev/null || log_warning "Failed to install php-${ext}"
+                    if apt-get install -y "php${PHP_VERSION}-${ext}" 2>/dev/null; then
+                        log_info "Installed php${PHP_VERSION}-${ext}"
+                    elif apt-get install -y "php-${ext}" 2>/dev/null; then
+                        log_info "Installed php-${ext}"
+                    else
+                        log_warning "Failed to install php-${ext}"
+                    fi
+                done
+                
+                for ext in "${MISSING_PDO_EXTENSIONS[@]}"; do
+                    case "$ext" in
+                        pdo_mysql)
+                            if apt-get install -y "php${PHP_VERSION}-mysql" 2>/dev/null; then
+                                log_info "Installed php${PHP_VERSION}-mysql"
+                            else
+                                log_warning "Failed to install php-mysql"
+                            fi
+                            ;;
+                        pdo_pgsql)
+                            if apt-get install -y "php${PHP_VERSION}-pgsql" 2>/dev/null; then
+                                log_info "Installed php${PHP_VERSION}-pgsql"
+                            else
+                                log_warning "Failed to install php-pgsql"
+                            fi
+                            ;;
+                        pdo_sqlite)
+                            if apt-get install -y "php${PHP_VERSION}-sqlite3" 2>/dev/null; then
+                                log_info "Installed php${PHP_VERSION}-sqlite3"
+                            else
+                                log_warning "Failed to install php-sqlite3"
+                            fi
+                            ;;
+                    esac
                 done
                 ;;
             dnf|yum)
                 for ext in "${MISSING_EXTENSIONS[@]}"; do
-                    $PKG_MANAGER install -y "php-${ext}" 2>/dev/null || log_warning "Failed to install php-${ext}"
+                    if $PKG_MANAGER install -y "php-${ext}" 2>/dev/null; then
+                        log_info "Installed php-${ext}"
+                    else
+                        log_warning "Failed to install php-${ext}"
+                    fi
+                done
+                
+                for ext in "${MISSING_PDO_EXTENSIONS[@]}"; do
+                    case "$ext" in
+                        pdo_mysql)
+                            if $PKG_MANAGER install -y "php-mysqlnd" 2>/dev/null; then
+                                log_info "Installed php-mysqlnd"
+                            else
+                                log_warning "Failed to install php-mysqlnd"
+                            fi
+                            ;;
+                        pdo_pgsql)
+                            if $PKG_MANAGER install -y "php-pgsql" 2>/dev/null; then
+                                log_info "Installed php-pgsql"
+                            else
+                                log_warning "Failed to install php-pgsql"
+                            fi
+                            ;;
+                        pdo_sqlite)
+                            if $PKG_MANAGER install -y "php-sqlite3" 2>/dev/null; then
+                                log_info "Installed php-sqlite3"
+                            else
+                                log_warning "Failed to install php-sqlite3"
+                            fi
+                            ;;
+                    esac
                 done
                 ;;
         esac
     fi
     
-    log_success "PHP extensions checked"
+    log_info "Verifying PHP extensions..."
+    FINAL_MISSING=()
+    for ext in "${REQUIRED_EXTENSIONS[@]}" "${REQUIRED_PDO_EXTENSIONS[@]}"; do
+        if ! php -m | grep -q "^$ext$"; then
+            FINAL_MISSING+=("$ext")
+        fi
+    done
+    
+    if [ ${#FINAL_MISSING[@]} -gt 0 ]; then
+        log_warning "Still missing extensions: ${FINAL_MISSING[*]}"
+        log_info "You may need to install them manually"
+    else
+        log_success "All required PHP extensions are installed"
+    fi
 }
 
 install_composer() {
