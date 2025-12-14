@@ -15,7 +15,16 @@ WINGS_DIR="$INSTALL_DIR/wings"
 OS_TYPE=""
 OS_VERSION=""
 PKG_MANAGER=""
-INSTALL_WINGS=false
+INSTALL_WINGS=true
+DOMAIN=""
+DB_NAME="pelican"
+DB_USER="pelican"
+DB_PASS=""
+ADMIN_EMAIL="admin@pelican.local"
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD=""
+PANEL_URL=""
+WINGS_TOKEN=""
 
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -31,6 +40,10 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+generate_password() {
+    openssl rand -base64 32 | tr -d "=+/" | cut -c1-25
 }
 
 check_root() {
@@ -332,27 +345,65 @@ install_nodejs() {
 }
 
 install_database() {
-    log_info "Database installation..."
+    log_info "Installing MariaDB..."
     
-    read -p "Install MySQL/MariaDB? (y/n): " INSTALL_DB
+    case "$PKG_MANAGER" in
+        apt)
+            debconf-set-selections <<< "mariadb-server mariadb-server/root_password password root"
+            debconf-set-selections <<< "mariadb-server mariadb-server/root_password_again password root"
+            apt-get install -y mariadb-server mariadb-client
+            systemctl enable mariadb
+            systemctl start mariadb
+            ;;
+        dnf|yum)
+            $PKG_MANAGER install -y mariadb-server mariadb
+            systemctl enable mariadb
+            systemctl start mariadb
+            ;;
+    esac
     
-    if [[ "$INSTALL_DB" =~ ^[Yy]$ ]]; then
-        case "$PKG_MANAGER" in
-            apt)
-                apt-get install -y mariadb-server mariadb-client
-                systemctl enable mariadb
-                systemctl start mariadb
-                ;;
-            dnf|yum)
-                $PKG_MANAGER install -y mariadb-server mariadb
-                systemctl enable mariadb
-                systemctl start mariadb
-                ;;
-        esac
-        log_success "MariaDB installed"
-    else
-        log_info "Skipping database installation"
+    sleep 3
+    
+    log_success "MariaDB installed"
+}
+
+setup_database_auto() {
+    log_info "Setting up database automatically..."
+    
+    if ! systemctl is-active --quiet mariadb && ! systemctl is-active --quiet mysql; then
+        log_warning "Database service not running, attempting to start..."
+        systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+        sleep 2
     fi
+    
+    DB_PASS=$(generate_password)
+    
+    mysql -u root -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
+        mysql -u root -proot -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
+            log_warning "Could not create database automatically. Please create manually."
+            return
+        }
+    }
+    
+    mysql -u root -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
+        mysql -u root -proot -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
+            log_warning "Could not create database user automatically."
+            return
+        }
+    }
+    
+    mysql -u root -e "GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'localhost';" 2>/dev/null || {
+        mysql -u root -proot -e "GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'localhost';" 2>/dev/null || {
+            log_warning "Could not grant privileges automatically."
+            return
+        }
+    }
+    
+    mysql -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || {
+        mysql -u root -proot -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+    }
+    
+    log_success "Database '$DB_NAME' and user '$DB_USER' created"
 }
 
 create_user() {
@@ -429,19 +480,35 @@ setup_panel_environment() {
         else
             sudo -u "$SERVICE_USER" touch .env
         fi
-        
-        log_info "Generating application key..."
-        sudo -u "$SERVICE_USER" php artisan key:generate --force || {
-            log_warning "Failed to generate application key"
-        }
-        
-        log_info "Setting up storage link..."
-        sudo -u "$SERVICE_USER" php artisan storage:link || {
-            log_warning "Failed to create storage link"
-        }
-    else
-        log_warning ".env file already exists"
     fi
+    
+    log_info "Configuring .env file..."
+    
+    if [ -z "$PANEL_URL" ]; then
+        if [ -n "$DOMAIN" ]; then
+            PANEL_URL="http://$DOMAIN"
+        else
+            PANEL_URL="http://$(hostname -I | awk '{print $1}')"
+        fi
+    fi
+    
+    sudo -u "$SERVICE_USER" php artisan key:generate --force
+    
+    sudo -u "$SERVICE_USER" sed -i "s|APP_URL=.*|APP_URL=$PANEL_URL|g" .env
+    sudo -u "$SERVICE_USER" sed -i "s|DB_CONNECTION=.*|DB_CONNECTION=mysql|g" .env
+    sudo -u "$SERVICE_USER" sed -i "s|DB_HOST=.*|DB_HOST=127.0.0.1|g" .env
+    sudo -u "$SERVICE_USER" sed -i "s|DB_PORT=.*|DB_PORT=3306|g" .env
+    sudo -u "$SERVICE_USER" sed -i "s|DB_DATABASE=.*|DB_DATABASE=$DB_NAME|g" .env
+    sudo -u "$SERVICE_USER" sed -i "s|DB_USERNAME=.*|DB_USERNAME=$DB_USER|g" .env
+    sudo -u "$SERVICE_USER" sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=$DB_PASS|g" .env
+    
+    sudo -u "$SERVICE_USER" php artisan config:cache
+    sudo -u "$SERVICE_USER" php artisan config:clear
+    
+    log_info "Setting up storage link..."
+    sudo -u "$SERVICE_USER" php artisan storage:link || {
+        log_warning "Failed to create storage link"
+    }
     
     log_success "Panel environment configured"
 }
@@ -477,15 +544,6 @@ install_docker() {
 
 install_wings() {
     log_info "Installing Pelican Wings..."
-    
-    read -p "Install Wings? (y/n): " INSTALL_WINGS_CHOICE
-    
-    if [[ ! "$INSTALL_WINGS_CHOICE" =~ ^[Yy]$ ]]; then
-        log_info "Skipping Wings installation"
-        return
-    fi
-    
-    INSTALL_WINGS=true
     
     install_docker
     
@@ -602,8 +660,20 @@ EOF
 
     systemctl daemon-reload
     
+    if [ -z "$WINGS_TOKEN" ] && [ -n "$PANEL_URL" ]; then
+        log_info "Wings configuration will need API token from Panel"
+        log_info "After Panel is running, go to Admin -> Nodes -> Configuration to get the token"
+        log_info "Then edit /etc/pelican/config.yml and add:"
+        log_info "  remote: $PANEL_URL"
+        log_info "  token: <your-token-from-panel>"
+    elif [ -n "$WINGS_TOKEN" ] && [ -n "$PANEL_URL" ]; then
+        log_info "Configuring Wings with provided token..."
+        sudo -u "$SERVICE_USER" sed -i "s|remote: \"\"|remote: \"$PANEL_URL\"|g" /etc/pelican/config.yml
+        sudo -u "$SERVICE_USER" sed -i "s|token: \"\"|token: \"$WINGS_TOKEN\"|g" /etc/pelican/config.yml
+        log_success "Wings configured with API token"
+    fi
+    
     log_success "Wings service created"
-    log_warning "Please configure /etc/pelican/config.yml with your Panel API token and remote URL"
 }
 
 create_panel_systemd_service() {
@@ -647,11 +717,12 @@ setup_nginx() {
         systemctl start nginx
     fi
     
-    read -p "Enter your domain name (or press Enter to skip): " DOMAIN
-    
     if [ -z "$DOMAIN" ]; then
-        log_warning "Skipping Nginx configuration"
-        return
+        DOMAIN=$(hostname -f 2>/dev/null || hostname)
+        if [ "$DOMAIN" = "localhost" ] || [ -z "$DOMAIN" ]; then
+            DOMAIN=$(hostname -I | awk '{print $1}')
+        fi
+        log_info "Using domain/hostname: $DOMAIN"
     fi
     
     PHP_FPM_SOCK="unix:/var/run/php/php-fpm.sock"
@@ -712,10 +783,11 @@ EOF
     
     log_success "Nginx configured"
     
-    read -p "Setup SSL with Let's Encrypt? (y/n): " SETUP_SSL
-    
-    if [[ "$SETUP_SSL" =~ ^[Yy]$ ]]; then
-        setup_ssl
+    if [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        log_info "IP address detected, skipping SSL setup"
+    else
+        log_info "Domain detected: $DOMAIN"
+        log_info "You can setup SSL later with: certbot --nginx -d $DOMAIN"
     fi
 }
 
@@ -755,27 +827,49 @@ EOF
 }
 
 setup_database() {
-    log_info "Setting up database..."
+    log_info "Running database migrations and seeding..."
+    cd "$PANEL_DIR"
     
-    read -p "Do you want to run database migrations and seed? (y/n): " RUN_MIGRATIONS
+    log_info "Running migrations..."
+    sudo -u "$SERVICE_USER" php artisan migrate --force || {
+        log_error "Migrations failed. Please check your database configuration in .env"
+        exit 1
+    }
     
-    if [[ "$RUN_MIGRATIONS" =~ ^[Yy]$ ]]; then
-        cd "$PANEL_DIR"
-        
-        log_info "Running migrations..."
-        sudo -u "$SERVICE_USER" php artisan migrate --force || {
-            log_warning "Migrations failed. Please check your database configuration in .env"
-        }
-        
-        log_info "Seeding database..."
-        sudo -u "$SERVICE_USER" php artisan db:seed --force || {
-            log_warning "Database seeding failed"
-        }
-        
-        log_success "Database setup completed"
-    else
-        log_info "Skipping database migrations"
+    log_info "Seeding database..."
+    sudo -u "$SERVICE_USER" php artisan db:seed --force || {
+        log_warning "Database seeding failed"
+    }
+    
+    log_success "Database setup completed"
+}
+
+create_admin_user() {
+    log_info "Creating admin user..."
+    cd "$PANEL_DIR"
+    
+    if [ -z "$ADMIN_PASSWORD" ]; then
+        ADMIN_PASSWORD=$(generate_password)
     fi
+    
+    sudo -u "$SERVICE_USER" php artisan p:user:make \
+        --email "$ADMIN_EMAIL" \
+        --username "$ADMIN_USERNAME" \
+        --name-first "Admin" \
+        --name-last "User" \
+        --password "$ADMIN_PASSWORD" \
+        --admin || {
+        log_warning "Failed to create admin user automatically"
+        return
+    }
+    
+    log_success "Admin user created"
+    echo ""
+    echo "=== Admin Credentials ==="
+    echo "Email: $ADMIN_EMAIL"
+    echo "Username: $ADMIN_USERNAME"
+    echo "Password: $ADMIN_PASSWORD"
+    echo ""
 }
 
 setup_firewall() {
@@ -783,18 +877,14 @@ setup_firewall() {
     
     if command -v ufw &> /dev/null; then
         log_info "Configuring UFW firewall..."
-        ufw allow 22/tcp
-        ufw allow 80/tcp
-        ufw allow 443/tcp
+        ufw --force allow 22/tcp
+        ufw --force allow 80/tcp
+        ufw --force allow 443/tcp
         if [ "$INSTALL_WINGS" = true ]; then
-            ufw allow 2022/tcp
-            ufw allow 8080/tcp
+            ufw --force allow 2022/tcp
+            ufw --force allow 8080/tcp
         fi
-        read -p "Enable UFW firewall? (y/n): " ENABLE_UFW
-        if [[ "$ENABLE_UFW" =~ ^[Yy]$ ]]; then
-            ufw --force enable
-            log_success "UFW firewall enabled"
-        fi
+        log_success "UFW firewall rules added"
     elif command -v firewall-cmd &> /dev/null; then
         log_info "Configuring firewalld..."
         firewall-cmd --permanent --add-service=ssh
@@ -887,6 +977,7 @@ main() {
     install_composer
     install_nodejs
     install_database
+    setup_database_auto
     create_user
     install_panel
     install_panel_dependencies
@@ -894,14 +985,35 @@ main() {
     build_panel_assets
     setup_permissions
     setup_database
+    create_admin_user
     create_panel_systemd_service
     setup_nginx
     setup_cron
     install_wings
     setup_firewall
+    start_services
     print_summary
     
     log_success "Installation completed successfully!"
+}
+
+start_services() {
+    log_info "Starting services..."
+    
+    systemctl enable pelican-panel
+    systemctl start pelican-panel
+    
+    if [ "$INSTALL_WINGS" = true ]; then
+        if [ -n "$WINGS_TOKEN" ] && [ -n "$PANEL_URL" ]; then
+            systemctl enable pelican-wings
+            systemctl start pelican-wings
+            log_success "Wings service started"
+        else
+            log_info "Wings service created but not started (needs API token configuration)"
+        fi
+    fi
+    
+    log_success "Services started"
 }
 
 main "$@"
