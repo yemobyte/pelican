@@ -1214,7 +1214,132 @@ print_summary() {
     echo "6. Panel permissions: ls -la $PANEL_DIR/public"
 }
 
+uninstall_panel() {
+    info "Starting Pelican Panel uninstallation..."
+    
+    echo ""
+    warning "This will remove Pelican Panel and all its data!"
+    echo -n "Are you sure you want to continue? (yes/no): "
+    read CONFIRM
+    if [ "$CONFIRM" != "yes" ]; then
+        info "Uninstallation cancelled"
+        exit 0
+    fi
+    
+    echo ""
+    echo -n "Remove database and database user? (y/n) [y]: "
+    read REMOVE_DB
+    REMOVE_DB=${REMOVE_DB:-y}
+    
+    echo -n "Remove Wings? (y/n) [y]: "
+    read REMOVE_WINGS
+    REMOVE_WINGS=${REMOVE_WINGS:-y}
+    
+    echo -n "Remove Nginx configuration? (y/n) [y]: "
+    read REMOVE_NGINX
+    REMOVE_NGINX=${REMOVE_NGINX:-y}
+    
+    info "Stopping services..."
+    systemctl stop pelican-panel 2>/dev/null || true
+    systemctl disable pelican-panel 2>/dev/null || true
+    
+    if [ "$REMOVE_WINGS" = "y" ]; then
+        systemctl stop pelican-wings 2>/dev/null || true
+        systemctl disable pelican-wings 2>/dev/null || true
+    fi
+    
+    info "Removing systemd services..."
+    rm -f /etc/systemd/system/pelican-panel.service
+    if [ "$REMOVE_WINGS" = "y" ]; then
+        rm -f /etc/systemd/system/pelican-wings.service
+    fi
+    systemctl daemon-reload
+    
+    info "Removing Panel files..."
+    if [ -d "$PANEL_DIR" ]; then
+        rm -rf "$PANEL_DIR"
+        success "Panel directory removed: $PANEL_DIR"
+    fi
+    
+    if [ "$REMOVE_WINGS" = "y" ]; then
+        info "Removing Wings..."
+        rm -f /usr/local/bin/wings
+        rm -rf /etc/pelican
+        rm -rf /var/lib/pelican
+        rm -rf /var/log/pelican
+        rm -rf /var/run/wings
+        success "Wings removed"
+    fi
+    
+    if [ "$REMOVE_NGINX" = "y" ]; then
+        info "Removing Nginx configuration..."
+        rm -f /etc/nginx/sites-enabled/pelican.conf
+        rm -f /etc/nginx/sites-available/pelican.conf
+        if systemctl is-active --quiet nginx; then
+            systemctl reload nginx
+        fi
+        success "Nginx configuration removed"
+    fi
+    
+    info "Removing cron jobs..."
+    if id "$SERVICE_USER" &>/dev/null; then
+        crontab -u "$SERVICE_USER" -l 2>/dev/null | grep -v "pelican" | crontab -u "$SERVICE_USER" - 2>/dev/null || true
+    fi
+    
+    if [ "$REMOVE_DB" = "y" ]; then
+        info "Removing database..."
+        DB_NAME=""
+        DB_USER=""
+        if [ -f "$PANEL_DIR/.env" ]; then
+            DB_NAME=$(grep "^DB_DATABASE=" "$PANEL_DIR/.env" | cut -d'=' -f2)
+            DB_USER=$(grep "^DB_USERNAME=" "$PANEL_DIR/.env" | cut -d'=' -f2)
+        fi
+        
+        if [ -z "$DB_NAME" ] || [ -z "$DB_USER" ]; then
+            echo -n "Database name: "
+            read DB_NAME
+            echo -n "Database user: "
+            read DB_USER
+        fi
+        
+        if [ -n "$DB_NAME" ]; then
+            mysql -u root -e "DROP DATABASE IF EXISTS \`$DB_NAME\`;" 2>/dev/null || true
+            success "Database removed: $DB_NAME"
+        fi
+        
+        if [ -n "$DB_USER" ]; then
+            mysql -u root -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || true
+            mysql -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+            success "Database user removed: $DB_USER"
+        fi
+    fi
+    
+    echo ""
+    echo -n "Remove service user '$SERVICE_USER'? (y/n) [n]: "
+    read REMOVE_USER
+    REMOVE_USER=${REMOVE_USER:-n}
+    
+    if [ "$REMOVE_USER" = "y" ]; then
+        info "Removing service user..."
+        if id "$SERVICE_USER" &>/dev/null; then
+            userdel -r "$SERVICE_USER" 2>/dev/null || true
+            success "Service user removed: $SERVICE_USER"
+        fi
+    fi
+    
+    success "Pelican Panel uninstallation completed!"
+    info "Note: PHP, Node.js, Nginx, and other system packages were not removed"
+    info "You can remove them manually if needed"
+}
+
 main() {
+    if [ "$1" = "uninstall" ]; then
+        check_root
+        detect_os
+        uninstall_panel
+        exit 0
+    fi
+    
     info "Starting Pelican installation..."
     
     check_root
@@ -1248,4 +1373,10 @@ main() {
     success "Installation completed successfully!"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    if [ "$1" = "uninstall" ]; then
+        main uninstall
+    else
+        main "$@"
+    fi
+fi
