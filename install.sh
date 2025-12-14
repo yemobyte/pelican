@@ -486,15 +486,57 @@ setup_database() {
         sleep 3
     fi
     
-    mysql -u root -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
-        mysql -u root -proot -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
+    DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$DB_NAME';" 2>/dev/null | grep -c "$DB_NAME" || echo "0")
+    if [ "$DB_EXISTS" -gt 0 ]; then
+        warning "Database '$DB_NAME' already exists!"
+        echo ""
+        echo "The database '$DB_NAME' is already in use. Please choose a different database name."
+        while true; do
+            echo -n "Enter new database name: "
+            read NEW_DB_NAME
+            if [ -z "$NEW_DB_NAME" ]; then
+                error "Database name cannot be empty!"
+                continue
+            fi
+            NEW_DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$NEW_DB_NAME';" 2>/dev/null | grep -c "$NEW_DB_NAME" || echo "0")
+            if [ "$NEW_DB_EXISTS" -gt 0 ]; then
+                warning "Database '$NEW_DB_NAME' also exists! Please choose another name."
+                continue
+            fi
+            DB_NAME="$NEW_DB_NAME"
+            info "Using database name: $DB_NAME"
+            break
+        done
+    fi
+    
+    USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$DB_USER" || echo "0")
+    if [ "$USER_EXISTS" -gt 0 ]; then
+        warning "Database user '$DB_USER' already exists!"
+        echo ""
+        echo "The database user '$DB_USER' is already in use. Please choose a different username."
+        while true; do
+            echo -n "Enter new database username: "
+            read NEW_DB_USER
+            if [ -z "$NEW_DB_USER" ]; then
+                error "Database username cannot be empty!"
+                continue
+            fi
+            NEW_USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$NEW_DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$NEW_DB_USER" || echo "0")
+            if [ "$NEW_USER_EXISTS" -gt 0 ]; then
+                warning "Database user '$NEW_DB_USER' also exists! Please choose another username."
+                continue
+            fi
+            DB_USER="$NEW_DB_USER"
+            info "Using database username: $DB_USER"
+            break
+        done
+    fi
+    
+    mysql -u root -e "CREATE DATABASE \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
+        mysql -u root -proot -e "CREATE DATABASE \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
             error "Could not create database. Please check MariaDB installation."
             exit 1
         }
-    }
-    
-    mysql -u root -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || {
-        mysql -u root -proot -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || true
     }
     
     mysql -u root -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
@@ -1410,18 +1452,9 @@ uninstall_panel() {
         exit 0
     fi
     
-    echo ""
-    echo -n "Remove database and database user? (y/n) [y]: "
-    read REMOVE_DB
-    REMOVE_DB=${REMOVE_DB:-y}
-    
-    echo -n "Remove Wings? (y/n) [y]: "
-    read REMOVE_WINGS
-    REMOVE_WINGS=${REMOVE_WINGS:-y}
-    
-    echo -n "Remove Nginx configuration? (y/n) [y]: "
-    read REMOVE_NGINX
-    REMOVE_NGINX=${REMOVE_NGINX:-y}
+    REMOVE_DB="y"
+    REMOVE_WINGS="y"
+    REMOVE_NGINX="y"
     
     info "Stopping services..."
     systemctl stop pelican-panel 2>/dev/null || true
@@ -1445,57 +1478,54 @@ uninstall_panel() {
         success "Panel directory removed: $PANEL_DIR"
     fi
     
-    if [ "$REMOVE_WINGS" = "y" ]; then
-        info "Removing Wings..."
-        rm -f /usr/local/bin/wings
-        rm -rf /etc/pelican
-        rm -rf /var/lib/pelican
-        rm -rf /var/log/pelican
-        rm -rf /var/run/wings
-        success "Wings removed"
-    fi
+    info "Removing Wings..."
+    rm -f /usr/local/bin/wings
+    rm -rf /etc/pelican
+    rm -rf /var/lib/pelican
+    rm -rf /var/log/pelican
+    rm -rf /var/run/wings
+    success "Wings removed"
     
-    if [ "$REMOVE_NGINX" = "y" ]; then
-        info "Removing Nginx configuration..."
-        rm -f /etc/nginx/sites-enabled/pelican.conf
-        rm -f /etc/nginx/sites-available/pelican.conf
-        if systemctl is-active --quiet nginx; then
-            systemctl reload nginx
-        fi
-        success "Nginx configuration removed"
+    info "Removing Nginx configuration..."
+    rm -f /etc/nginx/sites-enabled/pelican.conf
+    rm -f /etc/nginx/sites-available/pelican.conf
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
     fi
+    success "Nginx configuration removed"
     
     info "Removing cron jobs..."
     if id "$SERVICE_USER" &>/dev/null; then
         crontab -u "$SERVICE_USER" -l 2>/dev/null | grep -v "pelican" | crontab -u "$SERVICE_USER" - 2>/dev/null || true
     fi
     
-    if [ "$REMOVE_DB" = "y" ]; then
-        info "Removing database..."
-        DB_NAME=""
-        DB_USER=""
-        if [ -f "$PANEL_DIR/.env" ]; then
-            DB_NAME=$(grep "^DB_DATABASE=" "$PANEL_DIR/.env" | cut -d'=' -f2)
-            DB_USER=$(grep "^DB_USERNAME=" "$PANEL_DIR/.env" | cut -d'=' -f2)
-        fi
-        
-        if [ -z "$DB_NAME" ] || [ -z "$DB_USER" ]; then
-            echo -n "Database name: "
-            read DB_NAME
-            echo -n "Database user: "
+    info "Removing database and database user..."
+    DB_NAME=""
+    DB_USER=""
+    if [ -f "$PANEL_DIR/.env" ]; then
+        DB_NAME=$(grep "^DB_DATABASE=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d ' ' | tr -d '"')
+        DB_USER=$(grep "^DB_USERNAME=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d ' ' | tr -d '"')
+    fi
+    
+    if [ -z "$DB_NAME" ] || [ -z "$DB_USER" ]; then
+        warning "Could not read database info from .env file"
+        echo -n "Database name (leave empty to skip): "
+        read DB_NAME
+        if [ -n "$DB_NAME" ]; then
+            echo -n "Database user (leave empty to skip): "
             read DB_USER
         fi
-        
-        if [ -n "$DB_NAME" ]; then
-            mysql -u root -e "DROP DATABASE IF EXISTS \`$DB_NAME\`;" 2>/dev/null || true
-            success "Database removed: $DB_NAME"
-        fi
-        
-        if [ -n "$DB_USER" ]; then
-            mysql -u root -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || true
-            mysql -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || true
-            success "Database user removed: $DB_USER"
-        fi
+    fi
+    
+    if [ -n "$DB_NAME" ]; then
+        mysql -u root -e "DROP DATABASE IF EXISTS \`$DB_NAME\`;" 2>/dev/null || mysql -u root -proot -e "DROP DATABASE IF EXISTS \`$DB_NAME\`;" 2>/dev/null || true
+        success "Database removed: $DB_NAME"
+    fi
+    
+    if [ -n "$DB_USER" ]; then
+        mysql -u root -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || mysql -u root -proot -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || true
+        mysql -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || mysql -u root -proot -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+        success "Database user removed: $DB_USER"
     fi
     
     echo ""
