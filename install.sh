@@ -132,48 +132,129 @@ install_system_dependencies() {
 install_php() {
     info "Installing PHP 8.4/8.3/8.2..."
     
+    PHP_NEEDS_INSTALL=false
+    PHP_FPM_NEEDS_INSTALL=false
+    
     if command -v php &> /dev/null; then
         PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
         PHP_MINOR=$(php -r 'echo PHP_VERSION;' | cut -d. -f2)
         if [ "$PHP_MINOR" -ge 2 ]; then
             info "PHP $PHP_VERSION already installed"
-            return
+        else
+            PHP_NEEDS_INSTALL=true
+        fi
+    else
+        PHP_NEEDS_INSTALL=true
+    fi
+    
+    PHP_FPM_SERVICE=""
+    if [ -n "$PHP_VERSION" ]; then
+        if systemctl list-unit-files | grep -q "php${PHP_VERSION}-fpm.service"; then
+            PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+        elif systemctl list-unit-files | grep -q "php-fpm.service"; then
+            PHP_FPM_SERVICE="php-fpm"
         fi
     fi
     
-    case "$PKG_MANAGER" in
-        apt)
-            if ! grep -q "ondrej/php" /etc/apt/sources.list.d/*.list 2>/dev/null; then
-                add-apt-repository -y ppa:ondrej/php
-            fi
-            apt-get update
-            if apt-cache show php8.4-fpm &>/dev/null; then
-                apt-get install -y php8.4 php8.4-cli php8.4-fpm php8.4-common php8.4-mysql php8.4-zip php8.4-gd php8.4-mbstring php8.4-curl php8.4-xml php8.4-bcmath php8.4-intl php8.4-sqlite3
-                PHP_VERSION="8.4"
-            elif apt-cache show php8.3-fpm &>/dev/null; then
-                apt-get install -y php8.3 php8.3-cli php8.3-fpm php8.3-common php8.3-mysql php8.3-zip php8.3-gd php8.3-mbstring php8.3-curl php8.3-xml php8.3-bcmath php8.3-intl php8.3-sqlite3
-                PHP_VERSION="8.3"
-            else
-                apt-get install -y php8.2 php8.2-cli php8.2-fpm php8.2-common php8.2-mysql php8.2-zip php8.2-gd php8.2-mbstring php8.2-curl php8.2-xml php8.2-bcmath php8.2-intl php8.2-sqlite3
-                PHP_VERSION="8.2"
-            fi
-            ;;
-        dnf|yum)
-            if [ "$OS_TYPE" == "almalinux" ] || [ "$OS_TYPE" == "rocky" ] || [ "$OS_TYPE" == "centos" ]; then
-                if ! rpm -q epel-release &>/dev/null; then
-                    $PKG_MANAGER install -y epel-release
-                fi
-                if [ ! -f /etc/yum.repos.d/remi.repo ]; then
-                    $PKG_MANAGER install -y https://rpms.remirepo.net/enterprise/remi-release-${OS_VERSION}.rpm
-                fi
-                $PKG_MANAGER module reset php -y 2>/dev/null || true
-                $PKG_MANAGER module enable php:remi-8.4 -y 2>/dev/null || $PKG_MANAGER module enable php:remi-8.3 -y 2>/dev/null || $PKG_MANAGER module enable php:remi-8.2 -y
-                $PKG_MANAGER install -y php php-cli php-fpm php-common php-mysqlnd php-zip php-gd php-mbstring php-curl php-xml php-bcmath php-intl php-sqlite3
-            fi
-            ;;
-    esac
+    if [ -z "$PHP_FPM_SERVICE" ]; then
+        PHP_FPM_NEEDS_INSTALL=true
+    elif ! systemctl is-enabled "$PHP_FPM_SERVICE" &>/dev/null; then
+        PHP_FPM_NEEDS_INSTALL=true
+    fi
     
-    success "PHP installed"
+    if [ "$PHP_NEEDS_INSTALL" = true ] || [ "$PHP_FPM_NEEDS_INSTALL" = true ]; then
+        case "$PKG_MANAGER" in
+            apt)
+                if ! grep -q "ondrej/php" /etc/apt/sources.list.d/*.list 2>/dev/null; then
+                    add-apt-repository -y ppa:ondrej/php
+                fi
+                apt-get update
+                
+                if [ "$PHP_NEEDS_INSTALL" = true ]; then
+                    if apt-cache show php8.4-fpm &>/dev/null; then
+                        apt-get install -y php8.4 php8.4-cli php8.4-fpm php8.4-common php8.4-mysql php8.4-zip php8.4-gd php8.4-mbstring php8.4-curl php8.4-xml php8.4-bcmath php8.4-intl php8.4-sqlite3
+                        PHP_VERSION="8.4"
+                    elif apt-cache show php8.3-fpm &>/dev/null; then
+                        apt-get install -y php8.3 php8.3-cli php8.3-fpm php8.3-common php8.3-mysql php8.3-zip php8.3-gd php8.3-mbstring php8.3-curl php8.3-xml php8.3-bcmath php8.3-intl php8.3-sqlite3
+                        PHP_VERSION="8.3"
+                    else
+                        apt-get install -y php8.2 php8.2-cli php8.2-fpm php8.2-common php8.2-mysql php8.2-zip php8.2-gd php8.2-mbstring php8.2-curl php8.2-xml php8.2-bcmath php8.2-intl php8.2-sqlite3
+                        PHP_VERSION="8.2"
+                    fi
+                elif [ "$PHP_FPM_NEEDS_INSTALL" = true ]; then
+                    if apt-cache show php${PHP_VERSION}-fpm &>/dev/null; then
+                        apt-get install -y php${PHP_VERSION}-fpm
+                    elif apt-cache show php8.4-fpm &>/dev/null; then
+                        apt-get install -y php8.4-fpm
+                        PHP_VERSION="8.4"
+                    elif apt-cache show php8.3-fpm &>/dev/null; then
+                        apt-get install -y php8.3-fpm
+                        PHP_VERSION="8.3"
+                    else
+                        apt-get install -y php8.2-fpm
+                        PHP_VERSION="8.2"
+                    fi
+                fi
+                ;;
+            dnf|yum)
+                if [ "$OS_TYPE" == "almalinux" ] || [ "$OS_TYPE" == "rocky" ] || [ "$OS_TYPE" == "centos" ]; then
+                    if ! rpm -q epel-release &>/dev/null; then
+                        $PKG_MANAGER install -y epel-release
+                    fi
+                    if [ ! -f /etc/yum.repos.d/remi.repo ]; then
+                        $PKG_MANAGER install -y https://rpms.remirepo.net/enterprise/remi-release-${OS_VERSION}.rpm
+                    fi
+                    $PKG_MANAGER module reset php -y 2>/dev/null || true
+                    $PKG_MANAGER module enable php:remi-8.4 -y 2>/dev/null || $PKG_MANAGER module enable php:remi-8.3 -y 2>/dev/null || $PKG_MANAGER module enable php:remi-8.2 -y
+                    
+                    if [ "$PHP_NEEDS_INSTALL" = true ]; then
+                        $PKG_MANAGER install -y php php-cli php-fpm php-common php-mysqlnd php-zip php-gd php-mbstring php-curl php-xml php-bcmath php-intl php-sqlite3
+                    elif [ "$PHP_FPM_NEEDS_INSTALL" = true ]; then
+                        $PKG_MANAGER install -y php-fpm
+                    fi
+                fi
+                ;;
+        esac
+    fi
+    
+    PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
+    
+    PHP_FPM_SERVICE=""
+    if systemctl list-unit-files | grep -q "php${PHP_VERSION}-fpm.service"; then
+        PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+    elif systemctl list-unit-files | grep -q "php-fpm.service"; then
+        PHP_FPM_SERVICE="php-fpm"
+    elif [ -f "/etc/systemd/system/php${PHP_VERSION}-fpm.service" ] || [ -f "/lib/systemd/system/php${PHP_VERSION}-fpm.service" ]; then
+        PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+    elif [ -f "/etc/systemd/system/php-fpm.service" ] || [ -f "/lib/systemd/system/php-fpm.service" ]; then
+        PHP_FPM_SERVICE="php-fpm"
+    else
+        for service in php8.4-fpm php8.3-fpm php8.2-fpm php-fpm; do
+            if systemctl list-unit-files | grep -q "${service}.service"; then
+                PHP_FPM_SERVICE="$service"
+                break
+            fi
+        done
+    fi
+    
+    if [ -z "$PHP_FPM_SERVICE" ]; then
+        error "PHP-FPM service not found after installation. Please install PHP-FPM manually."
+        exit 1
+    fi
+    
+    info "PHP-FPM service detected: $PHP_FPM_SERVICE"
+    
+    if ! systemctl is-active --quiet "$PHP_FPM_SERVICE"; then
+        info "Starting PHP-FPM service..."
+        systemctl start "$PHP_FPM_SERVICE" || {
+            error "Failed to start PHP-FPM service: $PHP_FPM_SERVICE"
+            exit 1
+        }
+    fi
+    
+    systemctl enable "$PHP_FPM_SERVICE" 2>/dev/null || true
+    
+    success "PHP $PHP_VERSION and PHP-FPM installed and started"
 }
 
 install_php_extensions() {
