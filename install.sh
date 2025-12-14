@@ -333,22 +333,38 @@ install_composer() {
 
 install_nodejs() {
     if ! command -v node &> /dev/null; then
-        info "Installing Node.js..."
+        info "Installing Node.js 22.x..."
         
         case "$PKG_MANAGER" in
             apt)
-                curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+                curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
                 apt-get install -y nodejs
                 ;;
             dnf|yum)
-                curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
+                curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
                 $PKG_MANAGER install -y nodejs
                 ;;
         esac
         
         success "Node.js installed"
     else
-        info "Node.js already installed"
+        NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
+        if [ "$NODE_VERSION" -lt 20 ]; then
+            info "Node.js version is too old, upgrading to 22.x..."
+            case "$PKG_MANAGER" in
+                apt)
+                    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+                    apt-get install -y nodejs
+                    ;;
+                dnf|yum)
+                    curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
+                    $PKG_MANAGER install -y nodejs
+                    ;;
+            esac
+            success "Node.js upgraded to 22.x"
+        else
+            info "Node.js already installed"
+        fi
     fi
 }
 
@@ -606,8 +622,27 @@ setup_nginx() {
         systemctl enable nginx
     fi
     
+    if lsof -i:80 &>/dev/null || ss -tuln | grep -q ':80 '; then
+        info "Port 80 is already in use, checking what's using it..."
+        PORT_80_PID=$(lsof -ti:80 2>/dev/null | head -1)
+        if [ -n "$PORT_80_PID" ]; then
+            PORT_80_CMD=$(ps -p $PORT_80_PID -o comm= 2>/dev/null)
+            warning "Port 80 is used by: $PORT_80_CMD (PID: $PORT_80_PID)"
+            if systemctl is-active --quiet nginx; then
+                systemctl stop nginx
+                sleep 2
+            elif systemctl is-active --quiet apache2; then
+                warning "Apache2 is running on port 80, stopping it..."
+                systemctl stop apache2
+                systemctl disable apache2
+                sleep 2
+            fi
+        fi
+    fi
+    
     if systemctl is-active --quiet nginx; then
         systemctl stop nginx
+        sleep 2
     fi
     
     PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
