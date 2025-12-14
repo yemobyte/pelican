@@ -796,20 +796,35 @@ create_admin_user() {
         return
     fi
     
-    sudo -u "$SERVICE_USER" php artisan p:user:make \
+    echo "$ADMIN_EMAIL" | sudo -u "$SERVICE_USER" php artisan p:user:make \
         --email "$ADMIN_EMAIL" \
         --username "$ADMIN_USERNAME" \
         --password "$ADMIN_PASSWORD" \
-        --admin 2>&1 | grep -v "Duplicate entry" || {
+        --admin <<EOF
+yes
+EOF
+    if [ $? -eq 0 ]; then
+        success "Admin user created"
+    else
         if sudo -u "$SERVICE_USER" php artisan tinker --execute="echo App\Models\User::where('email', '$ADMIN_EMAIL')->exists() ? 'yes' : 'no';" 2>/dev/null | grep -q "yes"; then
-            warning "Admin user already exists, skipping creation"
+            success "Admin user already exists"
         else
-            warning "Failed to create admin user automatically"
+            warning "Failed to create admin user automatically, creating manually..."
+            sudo -u "$SERVICE_USER" php artisan tinker <<PHPEOF
+\$user = new App\Models\User();
+\$user->email = '$ADMIN_EMAIL';
+\$user->username = '$ADMIN_USERNAME';
+\$user->password = Hash::make('$ADMIN_PASSWORD');
+\$user->root_admin = 1;
+\$user->save();
+PHPEOF
+            if [ $? -eq 0 ]; then
+                success "Admin user created manually"
+            else
+                error "Failed to create admin user"
+            fi
         fi
-        return
-    }
-    
-    success "Admin user created"
+    fi
 }
 
 create_panel_systemd_service() {
@@ -1498,33 +1513,74 @@ uninstall_panel() {
         crontab -u "$SERVICE_USER" -l 2>/dev/null | grep -v "pelican" | crontab -u "$SERVICE_USER" - 2>/dev/null || true
     fi
     
-    info "Removing database and database user..."
-    DB_NAME=""
-    DB_USER=""
-    if [ -f "$PANEL_DIR/.env" ]; then
-        DB_NAME=$(grep "^DB_DATABASE=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d ' ' | tr -d '"')
-        DB_USER=$(grep "^DB_USERNAME=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d ' ' | tr -d '"')
-    fi
+    info "Detecting databases and users..."
     
-    if [ -z "$DB_NAME" ] || [ -z "$DB_USER" ]; then
-        warning "Could not read database info from .env file"
-        echo -n "Database name (leave empty to skip): "
-        read DB_NAME
-        if [ -n "$DB_NAME" ]; then
-            echo -n "Database user (leave empty to skip): "
-            read DB_USER
+    DB_LIST=$(mysql -u root -e "SHOW DATABASES;" 2>/dev/null | grep -v -E "^(Database|information_schema|performance_schema|mysql|sys)$" || mysql -u root -proot -e "SHOW DATABASES;" 2>/dev/null | grep -v -E "^(Database|information_schema|performance_schema|mysql|sys)$" || echo "")
+    
+    if [ -n "$DB_LIST" ]; then
+        echo ""
+        info "Found databases:"
+        echo "$DB_LIST" | while read db; do
+            if [ -n "$db" ]; then
+                echo "  - $db"
+            fi
+        done
+        echo ""
+        echo "Enter database names to remove (comma-separated, or 'all' to remove all, or 'skip' to skip):"
+        echo -n "> "
+        read DB_NAMES_TO_REMOVE
+        
+        if [ "$DB_NAMES_TO_REMOVE" = "all" ]; then
+            echo "$DB_LIST" | while read db; do
+                if [ -n "$db" ]; then
+                    mysql -u root -e "DROP DATABASE IF EXISTS \`$db\`;" 2>/dev/null || mysql -u root -proot -e "DROP DATABASE IF EXISTS \`$db\`;" 2>/dev/null || true
+                    success "Database removed: $db"
+                fi
+            done
+        elif [ "$DB_NAMES_TO_REMOVE" != "skip" ] && [ -n "$DB_NAMES_TO_REMOVE" ]; then
+            echo "$DB_NAMES_TO_REMOVE" | tr ',' '\n' | while read db; do
+                db=$(echo "$db" | tr -d ' ')
+                if [ -n "$db" ]; then
+                    mysql -u root -e "DROP DATABASE IF EXISTS \`$db\`;" 2>/dev/null || mysql -u root -proot -e "DROP DATABASE IF EXISTS \`$db\`;" 2>/dev/null || true
+                    success "Database removed: $db"
+                fi
+            done
         fi
     fi
     
-    if [ -n "$DB_NAME" ]; then
-        mysql -u root -e "DROP DATABASE IF EXISTS \`$DB_NAME\`;" 2>/dev/null || mysql -u root -proot -e "DROP DATABASE IF EXISTS \`$DB_NAME\`;" 2>/dev/null || true
-        success "Database removed: $DB_NAME"
-    fi
+    USER_LIST=$(mysql -u root -e "SELECT User FROM mysql.user WHERE Host='localhost' AND User NOT IN ('root', 'mysql.sys', 'mysql.session', 'mysql.infoschema');" 2>/dev/null | grep -v "^User$" || mysql -u root -proot -e "SELECT User FROM mysql.user WHERE Host='localhost' AND User NOT IN ('root', 'mysql.sys', 'mysql.session', 'mysql.infoschema');" 2>/dev/null | grep -v "^User$" || echo "")
     
-    if [ -n "$DB_USER" ]; then
-        mysql -u root -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || mysql -u root -proot -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || true
+    if [ -n "$USER_LIST" ]; then
+        echo ""
+        info "Found database users:"
+        echo "$USER_LIST" | while read user; do
+            if [ -n "$user" ]; then
+                echo "  - $user"
+            fi
+        done
+        echo ""
+        echo "Enter usernames to remove (comma-separated, or 'all' to remove all, or 'skip' to skip):"
+        echo -n "> "
+        read USERS_TO_REMOVE
+        
+        if [ "$USERS_TO_REMOVE" = "all" ]; then
+            echo "$USER_LIST" | while read user; do
+                if [ -n "$user" ]; then
+                    mysql -u root -e "DROP USER IF EXISTS '$user'@'localhost';" 2>/dev/null || mysql -u root -proot -e "DROP USER IF EXISTS '$user'@'localhost';" 2>/dev/null || true
+                    success "Database user removed: $user"
+                fi
+            done
+        elif [ "$USERS_TO_REMOVE" != "skip" ] && [ -n "$USERS_TO_REMOVE" ]; then
+            echo "$USERS_TO_REMOVE" | tr ',' '\n' | while read user; do
+                user=$(echo "$user" | tr -d ' ')
+                if [ -n "$user" ]; then
+                    mysql -u root -e "DROP USER IF EXISTS '$user'@'localhost';" 2>/dev/null || mysql -u root -proot -e "DROP USER IF EXISTS '$user'@'localhost';" 2>/dev/null || true
+                    success "Database user removed: $user"
+                fi
+            done
+        fi
+        
         mysql -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || mysql -u root -proot -e "FLUSH PRIVILEGES;" 2>/dev/null || true
-        success "Database user removed: $DB_USER"
     fi
     
     echo ""
