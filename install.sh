@@ -193,69 +193,105 @@ install_php_extensions() {
                 apt-get update
                 
                 for ext in "${MISSING_EXTENSIONS[@]}"; do
-                    if apt-get install -y "php${PHP_VERSION}-${ext}" >/dev/null 2>&1; then
-                        log_info "Installed php${PHP_VERSION}-${ext}"
-                    elif apt-get install -y "php-${ext}" >/dev/null 2>&1; then
-                        log_info "Installed php-${ext}"
+                    if apt-get install -y "php${PHP_VERSION}-${ext}" 2>&1 | grep -v "already the newest\|0 upgraded" >/dev/null; then
+                        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                            log_info "Installed php${PHP_VERSION}-${ext}"
+                        else
+                            if apt-get install -y "php-${ext}" 2>&1 | grep -v "already the newest\|0 upgraded" >/dev/null; then
+                                if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                                    log_info "Installed php-${ext}"
+                                else
+                                    log_warning "Failed to install php-${ext}"
+                                fi
+                            fi
+                        fi
                     else
-                        log_warning "Failed to install php-${ext}"
+                        log_info "php${PHP_VERSION}-${ext} already installed"
                     fi
                 done
                 
                 if [ "$PDO_MYSQL_MISSING" = true ]; then
-                    if apt-get install -y "php${PHP_VERSION}-mysql" >/dev/null 2>&1; then
-                        log_info "Installed php${PHP_VERSION}-mysql (pdo_mysql)"
+                    if apt-get install -y "php${PHP_VERSION}-mysql" 2>&1 | grep -v "already the newest\|0 upgraded" >/dev/null; then
+                        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                            log_info "Installed php${PHP_VERSION}-mysql (pdo_mysql)"
+                        else
+                            log_warning "Failed to install php${PHP_VERSION}-mysql"
+                        fi
                     else
-                        log_warning "Failed to install php${PHP_VERSION}-mysql"
+                        log_info "php${PHP_VERSION}-mysql already installed"
                     fi
                 fi
                 
                 if [ "$PDO_PGSQL_MISSING" = true ]; then
-                    if apt-get install -y "php${PHP_VERSION}-pgsql" >/dev/null 2>&1; then
-                        log_info "Installed php${PHP_VERSION}-pgsql (pdo_pgsql)"
+                    if apt-get install -y "php${PHP_VERSION}-pgsql" 2>&1 | grep -v "already the newest\|0 upgraded" >/dev/null; then
+                        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                            log_info "Installed php${PHP_VERSION}-pgsql (pdo_pgsql)"
+                        else
+                            log_warning "Failed to install php${PHP_VERSION}-pgsql"
+                        fi
                     else
-                        log_warning "Failed to install php${PHP_VERSION}-pgsql"
+                        log_info "php${PHP_VERSION}-pgsql already installed"
                     fi
                 fi
                 
                 if [ "$PDO_SQLITE_MISSING" = true ]; then
-                    if apt-get install -y "php${PHP_VERSION}-sqlite3" >/dev/null 2>&1; then
-                        log_info "Installed php${PHP_VERSION}-sqlite3 (pdo_sqlite)"
+                    if apt-get install -y "php${PHP_VERSION}-sqlite3" 2>&1 | grep -v "already the newest\|0 upgraded" >/dev/null; then
+                        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                            log_info "Installed php${PHP_VERSION}-sqlite3 (pdo_sqlite)"
+                        else
+                            log_warning "Failed to install php${PHP_VERSION}-sqlite3"
+                        fi
                     else
-                        log_warning "Failed to install php${PHP_VERSION}-sqlite3"
+                        log_info "php${PHP_VERSION}-sqlite3 already installed"
                     fi
                 fi
                 ;;
             dnf|yum)
                 for ext in "${MISSING_EXTENSIONS[@]}"; do
-                    if $PKG_MANAGER install -y "php-${ext}" >/dev/null 2>&1; then
-                        log_info "Installed php-${ext}"
+                    if $PKG_MANAGER install -y "php-${ext}" 2>&1 | grep -v "already installed\|Nothing to do" >/dev/null; then
+                        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                            log_info "Installed php-${ext}"
+                        else
+                            log_warning "Failed to install php-${ext}"
+                        fi
                     else
-                        log_warning "Failed to install php-${ext}"
+                        log_info "php-${ext} already installed"
                     fi
                 done
                 
                 if [ "$PDO_MYSQL_MISSING" = true ]; then
-                    if $PKG_MANAGER install -y "php-mysqlnd" >/dev/null 2>&1; then
-                        log_info "Installed php-mysqlnd (pdo_mysql)"
+                    if $PKG_MANAGER install -y "php-mysqlnd" 2>&1 | grep -v "already installed\|Nothing to do" >/dev/null; then
+                        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                            log_info "Installed php-mysqlnd (pdo_mysql)"
+                        else
+                            log_warning "Failed to install php-mysqlnd"
+                        fi
                     else
-                        log_warning "Failed to install php-mysqlnd"
+                        log_info "php-mysqlnd already installed"
                     fi
                 fi
                 
                 if [ "$PDO_PGSQL_MISSING" = true ]; then
-                    if $PKG_MANAGER install -y "php-pgsql" >/dev/null 2>&1; then
-                        log_info "Installed php-pgsql (pdo_pgsql)"
+                    if $PKG_MANAGER install -y "php-pgsql" 2>&1 | grep -v "already installed\|Nothing to do" >/dev/null; then
+                        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                            log_info "Installed php-pgsql (pdo_pgsql)"
+                        else
+                            log_warning "Failed to install php-pgsql"
+                        fi
                     else
-                        log_warning "Failed to install php-pgsql"
+                        log_info "php-pgsql already installed"
                     fi
                 fi
                 
                 if [ "$PDO_SQLITE_MISSING" = true ]; then
-                    if $PKG_MANAGER install -y "php-sqlite3" >/dev/null 2>&1; then
-                        log_info "Installed php-sqlite3 (pdo_sqlite)"
+                    if $PKG_MANAGER install -y "php-sqlite3" 2>&1 | grep -v "already installed\|Nothing to do" >/dev/null; then
+                        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+                            log_info "Installed php-sqlite3 (pdo_sqlite)"
+                        else
+                            log_warning "Failed to install php-sqlite3"
+                        fi
                     else
-                        log_warning "Failed to install php-sqlite3"
+                        log_info "php-sqlite3 already installed"
                     fi
                 fi
                 ;;
