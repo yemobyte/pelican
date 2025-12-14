@@ -53,34 +53,14 @@ check_root() {
 }
 
 get_user_input() {
-    if [ ! -t 0 ]; then
-        log_info "Non-interactive mode detected, using auto-generated values"
-        DOMAIN=$(hostname -f 2>/dev/null || hostname -I | awk '{print $1}' || echo "localhost")
-        DB_NAME="pelican"
-        DB_USER="pelican"
-        DB_PASS=$(generate_password)
-        ADMIN_EMAIL="admin@pelican.local"
-        ADMIN_USERNAME="admin"
-        ADMIN_PASSWORD=$(generate_password)
-        INSTALL_WINGS=true
-        WINGS_TOKEN=""
-        PANEL_URL="http://$DOMAIN"
-        
-        log_info "Configuration:"
-        log_info "  Domain: $DOMAIN"
-        log_info "  Database: $DB_NAME"
-        log_info "  Database User: $DB_USER"
-        log_info "  Admin Email: $ADMIN_EMAIL"
-        log_info "  Admin Username: $ADMIN_USERNAME"
-        log_info "  Install Wings: $INSTALL_WINGS"
-        return
-    fi
-    
+    log_info "Pelican Panel Installation"
+    echo ""
     log_info "Please provide the following information:"
     echo ""
     
     while [ -z "$DOMAIN" ]; do
-        read -p "Domain name (or IP address) [required]: " DOMAIN
+        echo -n "Domain name (or IP address): "
+        read DOMAIN
         if [ -z "$DOMAIN" ]; then
             log_error "Domain is required! Please enter your domain or IP address."
         fi
@@ -88,13 +68,16 @@ get_user_input() {
     
     echo ""
     log_info "Database Configuration:"
-    read -p "Database name [pelican]: " DB_NAME
+    echo -n "Database name [pelican]: "
+    read DB_NAME
     DB_NAME=${DB_NAME:-pelican}
     
-    read -p "Database username [pelican]: " DB_USER
+    echo -n "Database username [pelican]: "
+    read DB_USER
     DB_USER=${DB_USER:-pelican}
     
-    read -sp "Database password (press Enter for auto-generate): " DB_PASS
+    echo -n "Database password (press Enter for auto-generate): "
+    read -s DB_PASS
     echo ""
     if [ -z "$DB_PASS" ]; then
         DB_PASS=$(generate_password)
@@ -103,13 +86,16 @@ get_user_input() {
     
     echo ""
     log_info "Admin User Configuration:"
-    read -p "Admin email [admin@pelican.local]: " ADMIN_EMAIL
+    echo -n "Admin email [admin@pelican.local]: "
+    read ADMIN_EMAIL
     ADMIN_EMAIL=${ADMIN_EMAIL:-admin@pelican.local}
     
-    read -p "Admin username [admin]: " ADMIN_USERNAME
+    echo -n "Admin username [admin]: "
+    read ADMIN_USERNAME
     ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
     
-    read -sp "Admin password (press Enter for auto-generate): " ADMIN_PASSWORD
+    echo -n "Admin password (press Enter for auto-generate): "
+    read -s ADMIN_PASSWORD
     echo ""
     if [ -z "$ADMIN_PASSWORD" ]; then
         ADMIN_PASSWORD=$(generate_password)
@@ -117,11 +103,13 @@ get_user_input() {
     fi
     
     echo ""
-    read -p "Install Wings? (y/n) [y]: " INSTALL_WINGS_CHOICE
+    echo -n "Install Wings? (y/n) [y]: "
+    read INSTALL_WINGS_CHOICE
     INSTALL_WINGS_CHOICE=${INSTALL_WINGS_CHOICE:-y}
     if [[ "$INSTALL_WINGS_CHOICE" =~ ^[Yy]$ ]]; then
         INSTALL_WINGS=true
-        read -p "Wings API token (leave empty to configure later): " WINGS_TOKEN
+        echo -n "Wings API token (leave empty to configure later): "
+        read WINGS_TOKEN
     fi
     
     PANEL_URL="http://$DOMAIN"
@@ -135,7 +123,8 @@ get_user_input() {
     echo "Admin Username: $ADMIN_USERNAME"
     echo "Install Wings: $INSTALL_WINGS"
     echo ""
-    read -p "Continue with installation? (y/n) [y]: " CONFIRM
+    echo -n "Continue with installation? (y/n) [y]: "
+    read CONFIRM
     CONFIRM=${CONFIRM:-y}
     if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
         log_info "Installation cancelled"

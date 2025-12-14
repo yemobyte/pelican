@@ -1,6 +1,6 @@
 # Pelican Panel Installer
 
-Automated installation script for Pelican Panel and Wings.
+Automated installation script for Pelican Panel and Wings following official Pelican documentation.
 
 ## Supported Operating Systems
 
@@ -25,12 +25,6 @@ Automated installation script for Pelican Panel and Wings.
 | **Rocky Linux** | 9 | ⚠️ Partially Supported | No SQLite Support |
 | **Rocky Linux** | 8 | ⚠️ Partially Supported | No SQLite Support |
 
-### Other OS Support
-
-The installer will attempt to auto-detect and use appropriate package manager for:
-- Other Debian-based distributions (uses `apt`)
-- Other RHEL-based distributions (uses `dnf` or `yum`)
-
 ## Requirements
 
 - Root access
@@ -42,19 +36,18 @@ The installer will attempt to auto-detect and use appropriate package manager fo
 
 ## Installation
 
-### Quick Install (Interactive)
+### Quick Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh | bash
 ```
 
-### Quick Install (Non-Interactive - Auto Defaults)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh | bash
-```
-
-The script will use auto-generated values if run non-interactively.
+The installer will:
+- Auto-detect your operating system
+- Ask for domain name (required)
+- Ask for database configuration (with defaults)
+- Ask for admin user configuration (with defaults)
+- Ask for Wings installation (optional)
 
 ### Manual Install
 
@@ -100,10 +93,10 @@ sudo ./install.sh
 
 ## Installation Process
 
-1. **Input Configuration** (Interactive mode):
-   - Domain name or IP address
-   - Database name, username, password
-   - Admin email, username, password
+1. **Input Configuration**:
+   - Domain name or IP address (required)
+   - Database name, username, password (with defaults)
+   - Admin email, username, password (with defaults)
    - Wings installation choice
 
 2. **Automatic Installation**:
@@ -209,13 +202,19 @@ cd /var/www/pelican
 php artisan p:user:make
 ```
 
+## Documentation
+
+- [Pelican Panel Documentation](https://pelican.dev/docs/panel/getting-started)
+- [Pelican Wings Documentation](https://pelican.dev/docs/wings/install)
+- [Pelican Web Server Configuration](https://pelican.dev/docs/panel/webserver-config)
+
 ## Notes
 
 - The installer follows official Pelican documentation
 - Panel is installed to `/var/www/pelican` (official default)
 - Wings binary is installed to `/usr/local/bin/wings` (official default)
 - All passwords are auto-generated if not provided
-- Non-interactive mode uses safe defaults for automated deployments
+- Domain name must be entered manually during installation
 
 ## Support
 
