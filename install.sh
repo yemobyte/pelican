@@ -761,6 +761,10 @@ setup_database_migrations() {
     info "Running database migrations and seeding..."
     cd "$PANEL_DIR"
     
+    info "Clearing database cache..."
+    sudo -u "$SERVICE_USER" php artisan config:clear
+    sudo -u "$SERVICE_USER" php artisan cache:clear
+    
     info "Running migrations..."
     sudo -u "$SERVICE_USER" php artisan migrate --force || {
         error "Migrations failed. Please check your database configuration in .env"
@@ -1459,17 +1463,12 @@ uninstall_panel() {
     info "Stopping services..."
     systemctl stop pelican-panel 2>/dev/null || true
     systemctl disable pelican-panel 2>/dev/null || true
-    
-    if [ "$REMOVE_WINGS" = "y" ]; then
-        systemctl stop pelican-wings 2>/dev/null || true
-        systemctl disable pelican-wings 2>/dev/null || true
-    fi
+    systemctl stop pelican-wings 2>/dev/null || true
+    systemctl disable pelican-wings 2>/dev/null || true
     
     info "Removing systemd services..."
     rm -f /etc/systemd/system/pelican-panel.service
-    if [ "$REMOVE_WINGS" = "y" ]; then
-        rm -f /etc/systemd/system/pelican-wings.service
-    fi
+    rm -f /etc/systemd/system/pelican-wings.service
     systemctl daemon-reload
     
     info "Removing Panel files..."
