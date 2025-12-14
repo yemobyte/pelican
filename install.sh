@@ -434,6 +434,11 @@ setup_panel_environment() {
         sudo -u "$SERVICE_USER" php artisan key:generate --force || {
             log_warning "Failed to generate application key"
         }
+        
+        log_info "Setting up storage link..."
+        sudo -u "$SERVICE_USER" php artisan storage:link || {
+            log_warning "Failed to create storage link"
+        }
     else
         log_warning ".env file already exists"
     fi
@@ -450,6 +455,26 @@ build_panel_assets() {
     log_success "Panel assets built"
 }
 
+install_docker() {
+    log_info "Installing Docker..."
+    
+    if command -v docker &> /dev/null; then
+        log_info "Docker already installed"
+        return
+    fi
+    
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+    CHANNEL=stable sh /tmp/get-docker.sh
+    rm /tmp/get-docker.sh
+    
+    usermod -aG docker "$SERVICE_USER"
+    
+    systemctl enable docker
+    systemctl start docker
+    
+    log_success "Docker installed"
+}
+
 install_wings() {
     log_info "Installing Pelican Wings..."
     
@@ -462,7 +487,9 @@ install_wings() {
     
     INSTALL_WINGS=true
     
-    mkdir -p "$WINGS_DIR"
+    install_docker
+    
+    mkdir -p "$WINGS_DIR" /var/run/wings
     cd "$INSTALL_DIR"
     
     if [ -d "$WINGS_DIR" ] && [ "$(ls -A $WINGS_DIR)" ]; then
@@ -473,12 +500,6 @@ install_wings() {
     
     log_info "Downloading Wings..."
     
-    WINGS_VERSION=$(curl -s https://api.github.com/repos/pelican-dev/wings/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    
-    if [ -z "$WINGS_VERSION" ]; then
-        WINGS_VERSION="v1.0.0"
-    fi
-    
     ARCH=$(uname -m)
     case "$ARCH" in
         x86_64) WINGS_ARCH="amd64" ;;
@@ -488,33 +509,92 @@ install_wings() {
     
     WINGS_URL="https://github.com/pelican-dev/wings/releases/latest/download/wings_linux_${WINGS_ARCH}"
     
-    curl -L -o "$WINGS_DIR/wings" "$WINGS_URL" || {
+    curl -L -o /usr/local/bin/wings "$WINGS_URL" || {
         log_error "Failed to download Wings"
         exit 1
     }
     
-    chmod +x "$WINGS_DIR/wings"
-    chown "$SERVICE_USER:$SERVICE_USER" "$WINGS_DIR/wings"
+    chmod +x /usr/local/bin/wings
     
     log_success "Wings downloaded"
     
     log_info "Creating Wings configuration directory..."
-    mkdir -p /etc/pelican
-    chown "$SERVICE_USER:$SERVICE_USER" /etc/pelican
+    mkdir -p /etc/pelican /var/run/wings
+    chown -R "$SERVICE_USER:$SERVICE_USER" /etc/pelican /var/run/wings
+    
+    log_info "Creating Wings config.yml template..."
+    cat > /etc/pelican/config.yml <<EOF
+system:
+  root_directory: /var/lib/pelican
+  log_directory: /var/log/pelican
+  data: /var/lib/pelican
+  sftp:
+    bind_address: 0.0.0.0
+    bind_port: 2022
+  websocket:
+    address: 0.0.0.0
+    port: 8080
+    ssl:
+      enabled: false
+      certificate: ""
+      key: ""
+  api:
+    host: 0.0.0.0
+    port: 8080
+    ssl:
+      enabled: false
+      certificate: ""
+      key: ""
+    upload_limit: 100
+  remote: ""
+  token: ""
+  cache:
+    enabled: true
+    driver: memory
+    prefix: "pelican:"
+docker:
+  network:
+    name: pelican
+    interface: ""
+  container:
+    pid: ""
+    network_mode: bridge
+    auto_remove: false
+    stop_timeout: 10
+    log_driver: json-file
+    log_opts:
+      max-size: "50m"
+      max-file: "1"
+  cors:
+    enabled: false
+    allowed_origins: []
+  registries:
+    quay.io:
+      username: ""
+      password: ""
+EOF
+    
+    chown "$SERVICE_USER:$SERVICE_USER" /etc/pelican/config.yml
+    chmod 600 /etc/pelican/config.yml
     
     log_info "Creating Wings systemd service..."
     cat > /etc/systemd/system/pelican-wings.service <<EOF
 [Unit]
 Description=Pelican Wings Daemon
-After=network.target
+After=docker.service
+Requires=docker.service
 
 [Service]
 Type=simple
 User=$SERVICE_USER
-WorkingDirectory=$WINGS_DIR
-ExecStart=$WINGS_DIR/wings
+Group=$SERVICE_USER
+WorkingDirectory=/etc/pelican
+ExecStart=/usr/local/bin/wings
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pelican-wings
 
 [Install]
 WantedBy=multi-user.target
@@ -523,6 +603,7 @@ EOF
     systemctl daemon-reload
     
     log_success "Wings service created"
+    log_warning "Please configure /etc/pelican/config.yml with your Panel API token and remote URL"
 }
 
 create_panel_systemd_service() {
@@ -573,6 +654,15 @@ setup_nginx() {
         return
     fi
     
+    PHP_FPM_SOCK="unix:/var/run/php/php-fpm.sock"
+    PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
+    
+    if [ -f "/var/run/php/php${PHP_VERSION}-fpm.sock" ]; then
+        PHP_FPM_SOCK="unix:/var/run/php/php${PHP_VERSION}-fpm.sock"
+    elif [ -f "/var/run/php-fpm/php-fpm.sock" ]; then
+        PHP_FPM_SOCK="unix:/var/run/php-fpm/php-fpm.sock"
+    fi
+    
     cat > /etc/nginx/sites-available/pelican-panel <<EOF
 server {
     listen 80;
@@ -597,9 +687,10 @@ server {
     error_page 404 /index.php;
 
     location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php-fpm.sock;
+        fastcgi_pass $PHP_FPM_SOCK;
         fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
         include fastcgi_params;
+        fastcgi_hide_header X-Powered-By;
     }
 
     location ~ /\.(?!well-known).* {
@@ -615,9 +706,38 @@ EOF
         ln -sf /etc/nginx/sites-available/pelican-panel /etc/nginx/sites-enabled/
     fi
     
+    rm -f /etc/nginx/sites-enabled/default
+    
     nginx -t && systemctl reload nginx
     
     log_success "Nginx configured"
+    
+    read -p "Setup SSL with Let's Encrypt? (y/n): " SETUP_SSL
+    
+    if [[ "$SETUP_SSL" =~ ^[Yy]$ ]]; then
+        setup_ssl
+    fi
+}
+
+setup_ssl() {
+    log_info "Setting up SSL with Let's Encrypt..."
+    
+    if ! command -v certbot &> /dev/null; then
+        case "$PKG_MANAGER" in
+            apt)
+                apt-get install -y certbot python3-certbot-nginx
+                ;;
+            dnf|yum)
+                $PKG_MANAGER install -y certbot python3-certbot-nginx
+                ;;
+        esac
+    fi
+    
+    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email || {
+        log_warning "SSL setup failed. You can run 'certbot --nginx -d $DOMAIN' manually"
+    }
+    
+    log_success "SSL configured"
 }
 
 setup_cron() {
@@ -634,6 +754,78 @@ EOF
     log_success "Cron jobs configured"
 }
 
+setup_database() {
+    log_info "Setting up database..."
+    
+    read -p "Do you want to run database migrations and seed? (y/n): " RUN_MIGRATIONS
+    
+    if [[ "$RUN_MIGRATIONS" =~ ^[Yy]$ ]]; then
+        cd "$PANEL_DIR"
+        
+        log_info "Running migrations..."
+        sudo -u "$SERVICE_USER" php artisan migrate --force || {
+            log_warning "Migrations failed. Please check your database configuration in .env"
+        }
+        
+        log_info "Seeding database..."
+        sudo -u "$SERVICE_USER" php artisan db:seed --force || {
+            log_warning "Database seeding failed"
+        }
+        
+        log_success "Database setup completed"
+    else
+        log_info "Skipping database migrations"
+    fi
+}
+
+setup_firewall() {
+    log_info "Setting up firewall..."
+    
+    if command -v ufw &> /dev/null; then
+        log_info "Configuring UFW firewall..."
+        ufw allow 22/tcp
+        ufw allow 80/tcp
+        ufw allow 443/tcp
+        if [ "$INSTALL_WINGS" = true ]; then
+            ufw allow 2022/tcp
+            ufw allow 8080/tcp
+        fi
+        read -p "Enable UFW firewall? (y/n): " ENABLE_UFW
+        if [[ "$ENABLE_UFW" =~ ^[Yy]$ ]]; then
+            ufw --force enable
+            log_success "UFW firewall enabled"
+        fi
+    elif command -v firewall-cmd &> /dev/null; then
+        log_info "Configuring firewalld..."
+        firewall-cmd --permanent --add-service=ssh
+        firewall-cmd --permanent --add-service=http
+        firewall-cmd --permanent --add-service=https
+        if [ "$INSTALL_WINGS" = true ]; then
+            firewall-cmd --permanent --add-port=2022/tcp
+            firewall-cmd --permanent --add-port=8080/tcp
+        fi
+        firewall-cmd --reload
+        log_success "Firewalld configured"
+    else
+        log_info "No firewall detected, skipping firewall setup"
+    fi
+}
+
+setup_permissions() {
+    log_info "Setting up permissions..."
+    
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR"
+    chmod -R 755 "$PANEL_DIR"
+    chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
+    
+    if [ "$INSTALL_WINGS" = true ]; then
+        mkdir -p /var/lib/pelican /var/log/pelican
+        chown -R "$SERVICE_USER:$SERVICE_USER" /var/lib/pelican /var/log/pelican
+    fi
+    
+    log_success "Permissions configured"
+}
+
 print_summary() {
     log_success "Pelican installation completed!"
     echo ""
@@ -641,24 +833,46 @@ print_summary() {
     echo "OS: $OS_TYPE $OS_VERSION"
     echo "Panel directory: $PANEL_DIR"
     if [ "$INSTALL_WINGS" = true ]; then
-        echo "Wings directory: $WINGS_DIR"
+        echo "Wings binary: /usr/local/bin/wings"
+        echo "Wings config: /etc/pelican/config.yml"
     fi
     echo "Service user: $SERVICE_USER"
     echo ""
     echo "=== Next Steps ==="
-    echo "1. Configure database in $PANEL_DIR/.env"
-    echo "2. Run migrations: cd $PANEL_DIR && php artisan migrate --seed"
+    if [ -z "$DOMAIN" ]; then
+        echo "1. Configure domain in $PANEL_DIR/.env (APP_URL)"
+    fi
+    echo "2. Configure database in $PANEL_DIR/.env if not done"
     echo "3. Create admin user: cd $PANEL_DIR && php artisan p:user:make"
     echo "4. Start Panel queue: systemctl enable --now pelican-panel"
     if [ "$INSTALL_WINGS" = true ]; then
-        echo "5. Configure Wings: Edit /etc/pelican/config.yml"
-        echo "6. Start Wings: systemctl enable --now pelican-wings"
+        echo "5. Get API token from Panel: Admin -> Nodes -> Configuration"
+        echo "6. Edit /etc/pelican/config.yml and add:"
+        echo "   - remote: https://your-panel-domain.com"
+        echo "   - token: your-api-token-from-panel"
+        echo "7. Start Wings: systemctl enable --now pelican-wings"
     fi
     echo ""
     if [ -n "$DOMAIN" ]; then
-        echo "Panel URL: http://$DOMAIN"
+        if [ -f /etc/letsencrypt/live/$DOMAIN/fullchain.pem ]; then
+            echo "Panel URL: https://$DOMAIN"
+        else
+            echo "Panel URL: http://$DOMAIN"
+        fi
     else
         echo "Panel URL: http://$(hostname -I | awk '{print $1}')"
+    fi
+    echo ""
+    echo "=== Service Management ==="
+    echo "Panel: systemctl {start|stop|restart|status} pelican-panel"
+    if [ "$INSTALL_WINGS" = true ]; then
+        echo "Wings: systemctl {start|stop|restart|status} pelican-wings"
+    fi
+    echo ""
+    echo "=== Logs ==="
+    echo "Panel: journalctl -u pelican-panel -f"
+    if [ "$INSTALL_WINGS" = true ]; then
+        echo "Wings: journalctl -u pelican-wings -f"
     fi
 }
 
@@ -678,10 +892,13 @@ main() {
     install_panel_dependencies
     setup_panel_environment
     build_panel_assets
+    setup_permissions
+    setup_database
     create_panel_systemd_service
     setup_nginx
     setup_cron
     install_wings
+    setup_firewall
     print_summary
     
     log_success "Installation completed successfully!"
