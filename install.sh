@@ -512,16 +512,50 @@ setup_panel_environment() {
     
     sudo -u "$SERVICE_USER" php artisan key:generate --force
     
-    sudo -u "$SERVICE_USER" sed -i "s|APP_URL=.*|APP_URL=$PANEL_URL|g" .env
-    sudo -u "$SERVICE_USER" sed -i "s|DB_CONNECTION=.*|DB_CONNECTION=mysql|g" .env
-    sudo -u "$SERVICE_USER" sed -i "s|DB_HOST=.*|DB_HOST=127.0.0.1|g" .env
-    sudo -u "$SERVICE_USER" sed -i "s|DB_PORT=.*|DB_PORT=3306|g" .env
-    sudo -u "$SERVICE_USER" sed -i "s|DB_DATABASE=.*|DB_DATABASE=$DB_NAME|g" .env
-    sudo -u "$SERVICE_USER" sed -i "s|DB_USERNAME=.*|DB_USERNAME=$DB_USER|g" .env
-    sudo -u "$SERVICE_USER" sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=$DB_PASS|g" .env
+    if ! grep -q "APP_URL" .env; then
+        echo "APP_URL=$PANEL_URL" >> .env
+    else
+        sudo -u "$SERVICE_USER" sed -i "s|APP_URL=.*|APP_URL=$PANEL_URL|g" .env
+    fi
     
-    sudo -u "$SERVICE_USER" php artisan config:cache
+    if ! grep -q "DB_CONNECTION" .env; then
+        echo "DB_CONNECTION=mysql" >> .env
+    else
+        sudo -u "$SERVICE_USER" sed -i "s|DB_CONNECTION=.*|DB_CONNECTION=mysql|g" .env
+    fi
+    
+    if ! grep -q "DB_HOST" .env; then
+        echo "DB_HOST=127.0.0.1" >> .env
+    else
+        sudo -u "$SERVICE_USER" sed -i "s|DB_HOST=.*|DB_HOST=127.0.0.1|g" .env
+    fi
+    
+    if ! grep -q "DB_PORT" .env; then
+        echo "DB_PORT=3306" >> .env
+    else
+        sudo -u "$SERVICE_USER" sed -i "s|DB_PORT=.*|DB_PORT=3306|g" .env
+    fi
+    
+    if ! grep -q "DB_DATABASE" .env; then
+        echo "DB_DATABASE=$DB_NAME" >> .env
+    else
+        sudo -u "$SERVICE_USER" sed -i "s|DB_DATABASE=.*|DB_DATABASE=$DB_NAME|g" .env
+    fi
+    
+    if ! grep -q "DB_USERNAME" .env; then
+        echo "DB_USERNAME=$DB_USER" >> .env
+    else
+        sudo -u "$SERVICE_USER" sed -i "s|DB_USERNAME=.*|DB_USERNAME=$DB_USER|g" .env
+    fi
+    
+    if ! grep -q "DB_PASSWORD" .env; then
+        echo "DB_PASSWORD=$DB_PASS" >> .env
+    else
+        sudo -u "$SERVICE_USER" sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=$DB_PASS|g" .env
+    fi
+    
     sudo -u "$SERVICE_USER" php artisan config:clear
+    sudo -u "$SERVICE_USER" php artisan config:cache
     
     info "Setting up storage link..."
     sudo -u "$SERVICE_USER" php artisan storage:link || {
@@ -762,12 +796,25 @@ EOF
         fi
     fi
     
+    PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+    if ! systemctl is-active --quiet "$PHP_FPM_SERVICE"; then
+        info "Starting PHP-FPM service..."
+        systemctl start "$PHP_FPM_SERVICE" || {
+            PHP_FPM_SERVICE="php-fpm"
+            systemctl start "$PHP_FPM_SERVICE" || {
+                error "Failed to start PHP-FPM"
+                exit 1
+            }
+        }
+        systemctl enable "$PHP_FPM_SERVICE"
+    fi
+    
     if systemctl is-active --quiet nginx; then
         systemctl reload nginx
     else
         systemctl start nginx || {
             error "Failed to start nginx"
-            if lsof -i:80 &>/dev/null; then
+            if command -v lsof &> /dev/null && lsof -i:80 &>/dev/null; then
                 error "Port 80 is still in use. Checking..."
                 lsof -i:80
             fi
@@ -776,7 +823,7 @@ EOF
         }
     fi
     
-    sleep 2
+    sleep 3
     
     if ! systemctl is-active --quiet nginx; then
         error "Nginx is not running after start attempt"
@@ -784,7 +831,22 @@ EOF
         exit 1
     fi
     
+    if [ ! -S "$(echo $PHP_FPM_SOCK | cut -d: -f2)" ]; then
+        error "PHP-FPM socket not found: $PHP_FPM_SOCK"
+        error "Please check PHP-FPM service status"
+        exit 1
+    fi
+    
     success "Nginx configured"
+    
+    info "Verifying Nginx and PHP-FPM are running..."
+    if systemctl is-active --quiet nginx && systemctl is-active --quiet "$PHP_FPM_SERVICE"; then
+        success "Nginx and PHP-FPM are running"
+    else
+        warning "Nginx or PHP-FPM may not be running properly"
+        systemctl status nginx --no-pager -l
+        systemctl status "$PHP_FPM_SERVICE" --no-pager -l
+    fi
     
     if [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         info "IP address detected, skipping SSL setup"
@@ -927,7 +989,20 @@ setup_permissions() {
     
     chown -R "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR"
     chmod -R 755 "$PANEL_DIR"
-    chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
+    
+    if [ -d "$PANEL_DIR/storage" ]; then
+        chmod -R 775 "$PANEL_DIR/storage"
+        chown -R "$SERVICE_USER:www-data" "$PANEL_DIR/storage" 2>/dev/null || chown -R "$SERVICE_USER:nginx" "$PANEL_DIR/storage" 2>/dev/null || chown -R "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR/storage"
+    fi
+    
+    if [ -d "$PANEL_DIR/bootstrap/cache" ]; then
+        chmod -R 775 "$PANEL_DIR/bootstrap/cache"
+        chown -R "$SERVICE_USER:www-data" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || chown -R "$SERVICE_USER:nginx" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || chown -R "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR/bootstrap/cache"
+    fi
+    
+    if [ -d "$PANEL_DIR/public" ]; then
+        chmod -R 755 "$PANEL_DIR/public"
+    fi
     
     if [ "$INSTALL_WINGS" = true ]; then
         mkdir -p /var/lib/pelican /var/log/pelican
@@ -940,8 +1015,35 @@ setup_permissions() {
 start_services() {
     info "Starting services..."
     
+    PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
+    PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+    
+    if ! systemctl is-active --quiet "$PHP_FPM_SERVICE"; then
+        systemctl start "$PHP_FPM_SERVICE" || {
+            PHP_FPM_SERVICE="php-fpm"
+            systemctl start "$PHP_FPM_SERVICE" || {
+                warning "Failed to start PHP-FPM, but continuing..."
+            }
+        }
+        systemctl enable "$PHP_FPM_SERVICE"
+    fi
+    
+    if ! systemctl is-active --quiet nginx; then
+        systemctl start nginx || {
+            error "Failed to start nginx"
+            exit 1
+        }
+    fi
+    
     systemctl enable pelican-panel
     systemctl start pelican-panel
+    
+    sleep 2
+    
+    if ! systemctl is-active --quiet pelican-panel; then
+        warning "Panel service may not be running properly"
+        systemctl status pelican-panel --no-pager -l
+    fi
     
     if [ "$INSTALL_WINGS" = true ]; then
         if [ -n "$WINGS_TOKEN" ] && [ -n "$PANEL_URL" ]; then
