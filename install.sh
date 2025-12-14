@@ -471,10 +471,27 @@ install_panel_dependencies() {
     info "Installing Panel dependencies..."
     cd "$PANEL_DIR"
     
-    COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$SERVICE_USER" composer install --no-dev --optimize-autoloader --no-interaction || {
-        error "Failed to install PHP dependencies"
+    if [ ! -f composer.json ]; then
+        error "composer.json not found in $PANEL_DIR"
         exit 1
-    }
+    fi
+    
+    if [ -d vendor ] && [ -f composer.lock ]; then
+        info "Dependencies already installed, checking for updates..."
+        COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$SERVICE_USER" composer update --no-dev --optimize-autoloader --no-interaction || {
+            warning "Failed to update dependencies, trying fresh install..."
+            rm -rf vendor composer.lock
+            COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$SERVICE_USER" composer install --no-dev --optimize-autoloader --no-interaction || {
+                error "Failed to install PHP dependencies"
+                exit 1
+            }
+        }
+    else
+        COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$SERVICE_USER" composer install --no-dev --optimize-autoloader --no-interaction || {
+            error "Failed to install PHP dependencies"
+            exit 1
+        }
+    fi
     
     success "Panel dependencies installed"
 }
@@ -881,12 +898,12 @@ setup_firewall() {
     
     if command -v ufw &> /dev/null; then
         info "Configuring UFW firewall..."
-        ufw --force allow 22/tcp
-        ufw --force allow 80/tcp
-        ufw --force allow 443/tcp
+        echo "y" | ufw allow 22/tcp 2>/dev/null || ufw allow 22/tcp
+        echo "y" | ufw allow 80/tcp 2>/dev/null || ufw allow 80/tcp
+        echo "y" | ufw allow 443/tcp 2>/dev/null || ufw allow 443/tcp
         if [ "$INSTALL_WINGS" = true ]; then
-            ufw --force allow 2022/tcp
-            ufw --force allow 8080/tcp
+            echo "y" | ufw allow 2022/tcp 2>/dev/null || ufw allow 2022/tcp
+            echo "y" | ufw allow 8080/tcp 2>/dev/null || ufw allow 8080/tcp
         fi
         success "UFW firewall rules added"
     elif command -v firewall-cmd &> /dev/null; then
