@@ -53,8 +53,8 @@ check_root() {
 }
 
 get_user_input() {
-    if [ ! -t 0 ]; then
-        log_warning "Non-interactive mode detected, using defaults"
+    if [ ! -t 0 ] || [ -z "$PS1" ]; then
+        log_info "Non-interactive mode detected, using auto-generated values"
         DOMAIN=$(hostname -f 2>/dev/null || hostname -I | awk '{print $1}' || echo "localhost")
         DB_NAME="pelican"
         DB_USER="pelican"
@@ -63,8 +63,16 @@ get_user_input() {
         ADMIN_USERNAME="admin"
         ADMIN_PASSWORD=$(generate_password)
         INSTALL_WINGS=true
+        WINGS_TOKEN=""
         PANEL_URL="http://$DOMAIN"
-        log_info "Using auto-generated values"
+        
+        log_info "Configuration:"
+        log_info "  Domain: $DOMAIN"
+        log_info "  Database: $DB_NAME"
+        log_info "  Database User: $DB_USER"
+        log_info "  Admin Email: $ADMIN_EMAIL"
+        log_info "  Admin Username: $ADMIN_USERNAME"
+        log_info "  Install Wings: $INSTALL_WINGS"
         return
     fi
     
@@ -1025,8 +1033,8 @@ main() {
     log_info "Starting Pelican installation..."
     
     check_root
-    get_user_input
     detect_os
+    get_user_input
     install_system_dependencies
     install_php
     install_php_extensions
