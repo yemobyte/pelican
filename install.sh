@@ -621,12 +621,25 @@ create_admin_user() {
         ADMIN_PASSWORD=$(generate_password)
     fi
     
+    info "Checking if admin user already exists..."
+    USER_EXISTS=$(sudo -u "$SERVICE_USER" php artisan tinker --execute="echo App\Models\User::where('email', '$ADMIN_EMAIL')->orWhere('username', '$ADMIN_USERNAME')->exists() ? 'yes' : 'no';" 2>/dev/null || echo "no")
+    
+    if [ "$USER_EXISTS" = "yes" ]; then
+        warning "Admin user with email '$ADMIN_EMAIL' or username '$ADMIN_USERNAME' already exists"
+        info "Skipping admin user creation"
+        return
+    fi
+    
     sudo -u "$SERVICE_USER" php artisan p:user:make \
         --email "$ADMIN_EMAIL" \
         --username "$ADMIN_USERNAME" \
         --password "$ADMIN_PASSWORD" \
-        --admin || {
-        warning "Failed to create admin user automatically"
+        --admin 2>&1 | grep -v "Duplicate entry" || {
+        if sudo -u "$SERVICE_USER" php artisan tinker --execute="echo App\Models\User::where('email', '$ADMIN_EMAIL')->exists() ? 'yes' : 'no';" 2>/dev/null | grep -q "yes"; then
+            warning "Admin user already exists, skipping creation"
+        else
+            warning "Failed to create admin user automatically"
+        fi
         return
     }
     
@@ -1027,16 +1040,37 @@ start_services() {
     info "Starting services..."
     
     PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
-    PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
     
-    if ! systemctl is-active --quiet "$PHP_FPM_SERVICE"; then
-        systemctl start "$PHP_FPM_SERVICE" || {
-            PHP_FPM_SERVICE="php-fpm"
+    PHP_FPM_SERVICE=""
+    if systemctl list-unit-files | grep -q "php${PHP_VERSION}-fpm.service"; then
+        PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+    elif systemctl list-unit-files | grep -q "php-fpm.service"; then
+        PHP_FPM_SERVICE="php-fpm"
+    elif [ -f "/etc/systemd/system/php${PHP_VERSION}-fpm.service" ] || [ -f "/lib/systemd/system/php${PHP_VERSION}-fpm.service" ]; then
+        PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+    elif [ -f "/etc/systemd/system/php-fpm.service" ] || [ -f "/lib/systemd/system/php-fpm.service" ]; then
+        PHP_FPM_SERVICE="php-fpm"
+    else
+        for service in php8.4-fpm php8.3-fpm php8.2-fpm php-fpm; do
+            if systemctl list-unit-files | grep -q "${service}.service"; then
+                PHP_FPM_SERVICE="$service"
+                break
+            fi
+        done
+    fi
+    
+    if [ -n "$PHP_FPM_SERVICE" ]; then
+        if ! systemctl is-active --quiet "$PHP_FPM_SERVICE"; then
+            info "Starting PHP-FPM service: $PHP_FPM_SERVICE"
             systemctl start "$PHP_FPM_SERVICE" || {
-                warning "Failed to start PHP-FPM, but continuing..."
+                warning "Failed to start PHP-FPM service: $PHP_FPM_SERVICE, but continuing..."
             }
-        }
-        systemctl enable "$PHP_FPM_SERVICE"
+            systemctl enable "$PHP_FPM_SERVICE"
+        else
+            info "PHP-FPM service already running: $PHP_FPM_SERVICE"
+        fi
+    else
+        warning "PHP-FPM service not found, but continuing..."
     fi
     
     if ! systemctl is-active --quiet nginx; then
