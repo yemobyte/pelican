@@ -831,10 +831,21 @@ EOF
         exit 1
     fi
     
-    if [ ! -S "$(echo $PHP_FPM_SOCK | cut -d: -f2)" ]; then
-        error "PHP-FPM socket not found: $PHP_FPM_SOCK"
-        error "Please check PHP-FPM service status"
-        exit 1
+    SOCKET_PATH=$(echo $PHP_FPM_SOCK | cut -d: -f2)
+    if [ ! -S "$SOCKET_PATH" ]; then
+        warning "PHP-FPM socket not found: $SOCKET_PATH"
+        warning "Trying to find PHP-FPM socket..."
+        if [ -S "/var/run/php/php${PHP_VERSION}-fpm.sock" ]; then
+            PHP_FPM_SOCK="unix:/var/run/php/php${PHP_VERSION}-fpm.sock"
+            info "Found PHP-FPM socket: $PHP_FPM_SOCK"
+        elif [ -S "/var/run/php-fpm/php-fpm.sock" ]; then
+            PHP_FPM_SOCK="unix:/var/run/php-fpm/php-fpm.sock"
+            info "Found PHP-FPM socket: $PHP_FPM_SOCK"
+        else
+            error "PHP-FPM socket not found. Please check PHP-FPM service status"
+            systemctl status "$PHP_FPM_SERVICE" --no-pager -l
+            exit 1
+        fi
     fi
     
     success "Nginx configured"
@@ -1192,6 +1203,15 @@ print_summary() {
     if [ "$INSTALL_WINGS" = true ]; then
         echo "Wings config: /etc/pelican/config.yml"
     fi
+    echo ""
+    echo "=== Troubleshooting ==="
+    echo "If panel is not accessible, check:"
+    echo "1. Nginx status: systemctl status nginx"
+    echo "2. PHP-FPM status: systemctl status php${PHP_VERSION}-fpm"
+    echo "3. Panel service: systemctl status pelican-panel"
+    echo "4. Nginx error log: tail -f /var/log/nginx/error.log"
+    echo "5. PHP-FPM error log: tail -f /var/log/php${PHP_VERSION}-fpm.log"
+    echo "6. Panel permissions: ls -la $PANEL_DIR/public"
 }
 
 main() {
