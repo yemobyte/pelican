@@ -42,6 +42,31 @@ Automated installation script for Pelican Panel and Wings following official Pel
 bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh)
 ```
 
+## Uninstall
+
+To uninstall Pelican Panel and Wings:
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh) uninstall
+```
+
+Or if you have the script locally:
+
+```bash
+./install.sh uninstall
+```
+
+The uninstaller will:
+- Stop and remove systemd services (Panel and Wings)
+- Remove Panel files from `/var/www/pelican`
+- Remove Wings binary and configuration files
+- Remove Nginx configuration (optional)
+- Remove database and database user (optional)
+- Remove cron jobs
+- Optionally remove the service user
+
+**Warning:** This action is irreversible and will delete all data!
+
 The installer will:
 - Auto-detect your operating system
 - Ask for domain name (required)
