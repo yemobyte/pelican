@@ -729,16 +729,24 @@ setup_nginx() {
     fi
     
     PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
-    PHP_FPM_SOCK="unix:/var/run/php/php${PHP_VERSION}-fpm.sock"
     
-    if [ ! -S "/var/run/php/php${PHP_VERSION}-fpm.sock" ]; then
-        if [ -S "/var/run/php/php-fpm.sock" ]; then
-            PHP_FPM_SOCK="unix:/var/run/php/php-fpm.sock"
-        elif [ -S "/var/run/php-fpm/php-fpm.sock" ]; then
-            PHP_FPM_SOCK="unix:/var/run/php-fpm/php-fpm.sock"
-        else
-            PHP_FPM_SOCK="unix:/var/run/php/php${PHP_VERSION}-fpm.sock"
-        fi
+    PHP_FPM_SOCK=""
+    if [ -S "/var/run/php/php${PHP_VERSION}-fpm.sock" ]; then
+        PHP_FPM_SOCK="unix:/var/run/php/php${PHP_VERSION}-fpm.sock"
+    elif [ -S "/var/run/php-fpm/php-fpm.sock" ]; then
+        PHP_FPM_SOCK="unix:/var/run/php-fpm/php-fpm.sock"
+    else
+        for sock in /var/run/php/php8.4-fpm.sock /var/run/php/php8.3-fpm.sock /var/run/php/php8.2-fpm.sock /var/run/php-fpm/php-fpm.sock; do
+            if [ -S "$sock" ]; then
+                PHP_FPM_SOCK="unix:$sock"
+                break
+            fi
+        done
+    fi
+    
+    if [ -z "$PHP_FPM_SOCK" ]; then
+        warning "PHP-FPM socket not found, using default path"
+        PHP_FPM_SOCK="unix:/var/run/php/php${PHP_VERSION}-fpm.sock"
     fi
     
     cat > /etc/nginx/sites-available/pelican.conf <<EOF
@@ -809,15 +817,37 @@ EOF
         fi
     fi
     
-    PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+    PHP_FPM_SERVICE=""
+    if systemctl list-unit-files | grep -q "php${PHP_VERSION}-fpm.service"; then
+        PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+    elif systemctl list-unit-files | grep -q "php-fpm.service"; then
+        PHP_FPM_SERVICE="php-fpm"
+    elif [ -f "/etc/systemd/system/php${PHP_VERSION}-fpm.service" ] || [ -f "/lib/systemd/system/php${PHP_VERSION}-fpm.service" ]; then
+        PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+    elif [ -f "/etc/systemd/system/php-fpm.service" ] || [ -f "/lib/systemd/system/php-fpm.service" ]; then
+        PHP_FPM_SERVICE="php-fpm"
+    else
+        for service in php8.4-fpm php8.3-fpm php8.2-fpm php-fpm; do
+            if systemctl list-unit-files | grep -q "${service}.service"; then
+                PHP_FPM_SERVICE="$service"
+                break
+            fi
+        done
+    fi
+    
+    if [ -z "$PHP_FPM_SERVICE" ]; then
+        error "PHP-FPM service not found. Please install PHP-FPM first."
+        exit 1
+    fi
+    
+    info "Detected PHP-FPM service: $PHP_FPM_SERVICE"
+    
     if ! systemctl is-active --quiet "$PHP_FPM_SERVICE"; then
         info "Starting PHP-FPM service..."
         systemctl start "$PHP_FPM_SERVICE" || {
-            PHP_FPM_SERVICE="php-fpm"
-            systemctl start "$PHP_FPM_SERVICE" || {
-                error "Failed to start PHP-FPM"
-                exit 1
-            }
+            error "Failed to start PHP-FPM service: $PHP_FPM_SERVICE"
+            systemctl status "$PHP_FPM_SERVICE" --no-pager -l
+            exit 1
         }
         systemctl enable "$PHP_FPM_SERVICE"
     fi
