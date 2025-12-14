@@ -507,15 +507,15 @@ build_panel_assets() {
             install_nodejs
         fi
         if [ -f package-lock.json ]; then
-            sudo -u "$SERVICE_USER" npm ci --only=production || {
+            sudo -u "$SERVICE_USER" npm ci --legacy-peer-deps || {
                 warning "Failed to install Node.js dependencies with npm ci, trying npm install"
-                sudo -u "$SERVICE_USER" npm install --only=production || {
+                sudo -u "$SERVICE_USER" npm install --legacy-peer-deps || {
                     warning "Failed to install Node.js dependencies, skipping build"
                     return
                 }
             }
         else
-            sudo -u "$SERVICE_USER" npm install --only=production || {
+            sudo -u "$SERVICE_USER" npm install --legacy-peer-deps || {
                 warning "Failed to install Node.js dependencies, skipping build"
                 return
             }
@@ -604,11 +604,10 @@ setup_nginx() {
                 ;;
         esac
         systemctl enable nginx
-        systemctl stop nginx 2>/dev/null || true
-        systemctl start nginx || {
-            warning "Nginx failed to start, checking configuration..."
-            nginx -t
-        }
+    fi
+    
+    if systemctl is-active --quiet nginx; then
+        systemctl stop nginx
     fi
     
     PHP_VERSION=$(php -r 'echo PHP_VERSION;' | cut -d. -f1,2)
@@ -676,13 +675,18 @@ EOF
         exit 1
     }
     
-    if systemctl is-active --quiet nginx; then
-        systemctl reload nginx
-    else
-        systemctl start nginx || {
-            error "Failed to start nginx"
-            exit 1
-        }
+    systemctl start nginx || {
+        error "Failed to start nginx"
+        systemctl status nginx
+        exit 1
+    }
+    
+    sleep 2
+    
+    if ! systemctl is-active --quiet nginx; then
+        error "Nginx is not running after start attempt"
+        systemctl status nginx
+        exit 1
     fi
     
     success "Nginx configured"

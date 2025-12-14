@@ -49,14 +49,6 @@ The installer will:
 - Ask for admin user configuration (with defaults)
 - Ask for Wings installation (optional)
 
-### Manual Install
-
-```bash
-wget https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh
-chmod +x install.sh
-sudo ./install.sh
-```
-
 ## What the Installer Does
 
 ### Automatic Detection
