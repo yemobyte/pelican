@@ -53,6 +53,29 @@ check_root() {
 }
 
 get_user_input() {
+    if [ ! -t 0 ] || [ ! -t 1 ]; then
+        log_info "Non-interactive mode detected, using auto-generated values"
+        DOMAIN=$(hostname -f 2>/dev/null || hostname -I | awk '{print $1}' || echo "localhost")
+        DB_NAME="pelican"
+        DB_USER="pelican"
+        DB_PASS=$(generate_password)
+        ADMIN_EMAIL="admin@pelican.local"
+        ADMIN_USERNAME="admin"
+        ADMIN_PASSWORD=$(generate_password)
+        INSTALL_WINGS=true
+        WINGS_TOKEN=""
+        PANEL_URL="http://$DOMAIN"
+        
+        log_info "Configuration:"
+        log_info "  Domain: $DOMAIN"
+        log_info "  Database: $DB_NAME"
+        log_info "  Database User: $DB_USER"
+        log_info "  Admin Email: $ADMIN_EMAIL"
+        log_info "  Admin Username: $ADMIN_USERNAME"
+        log_info "  Install Wings: $INSTALL_WINGS"
+        return
+    fi
+    
     log_info "Pelican Panel Installation"
     echo ""
     log_info "Please provide the following information:"
