@@ -39,7 +39,7 @@ Automated installation script for Pelican Panel and Wings following official Pel
 ### Quick Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh | bash
+bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh)
 ```
 
 The installer will:
@@ -60,7 +60,7 @@ sudo ./install.sh
 ## What the Installer Does
 
 ### Automatic Detection
-- Detects your operating system (Ubuntu, Debian, Alma Linux, Rocky Linux, CentOS, or other)
+- Detects your operating system (Ubuntu, Debian, Alma Linux, Rocky Linux, CentOS)
 - Detects OS version
 - Selects appropriate package manager (`apt`, `dnf`, or `yum`)
 
