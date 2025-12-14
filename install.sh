@@ -1365,14 +1365,8 @@ get_user_input() {
         info "Auto-generated admin password"
     fi
     
-    echo ""
-    echo -n "Install Wings? (y/n) [y]: "
-    read INSTALL_WINGS_CHOICE
-    INSTALL_WINGS_CHOICE=${INSTALL_WINGS_CHOICE:-y}
-    if [[ "$INSTALL_WINGS_CHOICE" =~ ^[Yy]$ ]]; then
-        INSTALL_WINGS=true
-        echo -n "Wings API token (leave empty to configure later): "
-        read WINGS_TOKEN
+    if [ -z "$INSTALL_WINGS" ]; then
+        INSTALL_WINGS=false
     fi
     
     PANEL_URL="http://$DOMAIN"
@@ -1601,15 +1595,51 @@ uninstall_panel() {
     info "You can remove them manually if needed"
 }
 
-main() {
-    if [ "$1" = "uninstall" ]; then
-        check_root
-        detect_os
-        uninstall_panel
-        exit 0
-    fi
+show_menu() {
+    echo ""
+    info "Pelican Installation Menu"
+    echo ""
+    echo "1. Install Panel only"
+    echo "2. Install Wings only"
+    echo "3. Install Panel + Wings"
+    echo "4. Uninstall"
+    echo "5. Exit"
+    echo ""
+    echo -n "Select option [1-5]: "
+    read MENU_CHOICE
     
-    info "Starting Pelican installation..."
+    case "$MENU_CHOICE" in
+        1)
+            INSTALL_PANEL=true
+            INSTALL_WINGS=false
+            ;;
+        2)
+            INSTALL_PANEL=false
+            INSTALL_WINGS=true
+            ;;
+        3)
+            INSTALL_PANEL=true
+            INSTALL_WINGS=true
+            ;;
+        4)
+            check_root
+            detect_os
+            uninstall_panel
+            exit 0
+            ;;
+        5)
+            info "Exiting..."
+            exit 0
+            ;;
+        *)
+            error "Invalid option"
+            exit 1
+            ;;
+    esac
+}
+
+install_panel_only() {
+    info "Installing Pelican Panel..."
     
     check_root
     detect_os
@@ -1632,9 +1662,69 @@ main() {
     create_panel_systemd_service
     setup_nginx
     setup_cron
-    if [ "$INSTALL_WINGS" = true ]; then
-        install_wings
+    setup_firewall
+    start_services
+    print_summary
+    
+    success "Panel installation completed successfully!"
+}
+
+install_wings_only() {
+    info "Installing Pelican Wings..."
+    
+    check_root
+    detect_os
+    
+    if [ ! -d "$PANEL_DIR" ] || [ ! -f "$PANEL_DIR/.env" ]; then
+        error "Panel is not installed. Please install Panel first or use option 3 to install both."
+        exit 1
     fi
+    
+    echo -n "Wings API token (leave empty to configure later): "
+    read WINGS_TOKEN
+    
+    install_docker
+    install_wings
+    setup_firewall
+    
+    success "Wings installation completed!"
+    info "To configure Wings:"
+    info "1. Login to Panel: $(grep '^APP_URL=' "$PANEL_DIR/.env" | cut -d'=' -f2)"
+    info "2. Go to Admin -> Nodes -> Configuration"
+    info "3. Copy the configuration and save to /etc/pelican/config.yml"
+    if [ -n "$WINGS_TOKEN" ]; then
+        info "4. Add API token to /etc/pelican/config.yml"
+    fi
+    info "5. Start Wings: systemctl enable --now pelican-wings"
+}
+
+install_both() {
+    info "Installing Pelican Panel + Wings..."
+    
+    check_root
+    detect_os
+    get_user_input
+    INSTALL_WINGS=true
+    install_system_dependencies
+    install_php
+    install_php_extensions
+    install_composer
+    install_nodejs
+    install_database
+    setup_database
+    create_user
+    install_panel
+    install_panel_dependencies
+    setup_panel_environment
+    build_panel_assets
+    setup_permissions
+    setup_database_migrations
+    create_admin_user
+    create_panel_systemd_service
+    setup_nginx
+    setup_cron
+    install_docker
+    install_wings
     setup_firewall
     start_services
     print_summary
@@ -1642,9 +1732,49 @@ main() {
     success "Installation completed successfully!"
 }
 
+main() {
+    if [ "$1" = "uninstall" ]; then
+        check_root
+        detect_os
+        uninstall_panel
+        exit 0
+    fi
+    
+    if [ "$1" = "panel" ]; then
+        install_panel_only
+        exit 0
+    fi
+    
+    if [ "$1" = "wings" ]; then
+        install_wings_only
+        exit 0
+    fi
+    
+    if [ "$1" = "both" ]; then
+        install_both
+        exit 0
+    fi
+    
+    show_menu
+    
+    if [ "$INSTALL_PANEL" = true ] && [ "$INSTALL_WINGS" = true ]; then
+        install_both
+    elif [ "$INSTALL_PANEL" = true ]; then
+        install_panel_only
+    elif [ "$INSTALL_WINGS" = true ]; then
+        install_wings_only
+    fi
+}
+
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [ "$1" = "uninstall" ]; then
         main uninstall
+    elif [ "$1" = "panel" ]; then
+        main panel
+    elif [ "$1" = "wings" ]; then
+        main wings
+    elif [ "$1" = "both" ]; then
+        main both
     else
         main "$@"
     fi
