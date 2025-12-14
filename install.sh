@@ -661,13 +661,15 @@ server {
 }
 EOF
 
-    rm -f /etc/nginx/sites-enabled/default
+    if [ -f /etc/nginx/sites-enabled/default ]; then
+        rm -f /etc/nginx/sites-enabled/default
+    fi
     
     if [ -d /etc/nginx/sites-enabled ]; then
-        ln -sf /etc/nginx/sites-available/pelican.conf /etc/nginx/sites-enabled/
+        ln -sf /etc/nginx/sites-available/pelican.conf /etc/nginx/sites-enabled/pelican.conf
     else
         mkdir -p /etc/nginx/sites-enabled
-        ln -sf /etc/nginx/sites-available/pelican.conf /etc/nginx/sites-enabled/
+        ln -sf /etc/nginx/sites-available/pelican.conf /etc/nginx/sites-enabled/pelican.conf
     fi
     
     nginx -t || {
@@ -675,17 +677,21 @@ EOF
         exit 1
     }
     
-    systemctl start nginx || {
-        error "Failed to start nginx"
-        systemctl status nginx
-        exit 1
-    }
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
+    else
+        systemctl start nginx || {
+            error "Failed to start nginx"
+            journalctl -u nginx --no-pager -n 20
+            exit 1
+        }
+    fi
     
     sleep 2
     
     if ! systemctl is-active --quiet nginx; then
         error "Nginx is not running after start attempt"
-        systemctl status nginx
+        journalctl -u nginx --no-pager -n 20
         exit 1
     fi
     
