@@ -119,12 +119,17 @@ install_system_dependencies() {
     case "$PKG_MANAGER" in
         apt)
             apt-get update
-            apt-get install -y curl wget unzip git tar software-properties-common apt-transport-https ca-certificates gnupg lsb-release
+            apt-get install -y curl wget unzip git tar software-properties-common apt-transport-https ca-certificates gnupg lsb-release build-essential
             ;;
         dnf|yum)
-            $PKG_MANAGER install -y curl wget unzip git tar ca-certificates
+            $PKG_MANAGER install -y curl wget unzip git tar ca-certificates gcc gcc-c++ make
             ;;
     esac
+    
+    if ! command -v systemctl &> /dev/null; then
+        error "systemd is required but not found. Please use a systemd-based distribution."
+        exit 1
+    fi
     
     success "System dependencies installed"
 }
