@@ -53,6 +53,21 @@ check_root() {
 }
 
 get_user_input() {
+    if [ ! -t 0 ]; then
+        log_warning "Non-interactive mode detected, using defaults"
+        DOMAIN=$(hostname -f 2>/dev/null || hostname -I | awk '{print $1}' || echo "localhost")
+        DB_NAME="pelican"
+        DB_USER="pelican"
+        DB_PASS=$(generate_password)
+        ADMIN_EMAIL="admin@pelican.local"
+        ADMIN_USERNAME="admin"
+        ADMIN_PASSWORD=$(generate_password)
+        INSTALL_WINGS=true
+        PANEL_URL="http://$DOMAIN"
+        log_info "Using auto-generated values"
+        return
+    fi
+    
     log_info "Please provide the following information:"
     echo ""
     
@@ -70,7 +85,7 @@ get_user_input() {
     read -p "Database username [pelican]: " DB_USER
     DB_USER=${DB_USER:-pelican}
     
-    read -sp "Database password: " DB_PASS
+    read -sp "Database password (press Enter for auto-generate): " DB_PASS
     echo ""
     if [ -z "$DB_PASS" ]; then
         DB_PASS=$(generate_password)
@@ -79,16 +94,13 @@ get_user_input() {
     
     echo ""
     log_info "Admin User Configuration:"
-    read -p "Admin email: " ADMIN_EMAIL
-    while [ -z "$ADMIN_EMAIL" ]; do
-        log_error "Admin email is required"
-        read -p "Admin email: " ADMIN_EMAIL
-    done
+    read -p "Admin email [admin@pelican.local]: " ADMIN_EMAIL
+    ADMIN_EMAIL=${ADMIN_EMAIL:-admin@pelican.local}
     
     read -p "Admin username [admin]: " ADMIN_USERNAME
     ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
     
-    read -sp "Admin password: " ADMIN_PASSWORD
+    read -sp "Admin password (press Enter for auto-generate): " ADMIN_PASSWORD
     echo ""
     if [ -z "$ADMIN_PASSWORD" ]; then
         ADMIN_PASSWORD=$(generate_password)
@@ -103,11 +115,7 @@ get_user_input() {
         read -p "Wings API token (leave empty to configure later): " WINGS_TOKEN
     fi
     
-    if [ -n "$DOMAIN" ] && [[ ! "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        PANEL_URL="http://$DOMAIN"
-    else
-        PANEL_URL="http://$DOMAIN"
-    fi
+    PANEL_URL="http://$DOMAIN"
     
     echo ""
     log_info "Configuration Summary:"
@@ -170,9 +178,21 @@ detect_os() {
             fi
             ;;
         *)
-            log_error "Unsupported operating system: $OS_TYPE"
-            log_info "Supported OS: Ubuntu 22.04/24.04, Debian 11/12, Alma Linux 8/9/10, Rocky Linux 8/9/10, CentOS 10"
-            exit 1
+            log_warning "Unsupported operating system detected: $OS_TYPE"
+            if [ -f /etc/debian_version ]; then
+                PKG_MANAGER="apt"
+                log_info "Assuming Debian-based system, using apt"
+            elif [ -f /etc/redhat-release ]; then
+                if command -v dnf &> /dev/null; then
+                    PKG_MANAGER="dnf"
+                else
+                    PKG_MANAGER="yum"
+                fi
+                log_info "Assuming RHEL-based system, using $PKG_MANAGER"
+            else
+                log_error "Cannot determine package manager for $OS_TYPE"
+                exit 1
+            fi
             ;;
     esac
     
@@ -496,7 +516,7 @@ create_user() {
     if id "$SERVICE_USER" &>/dev/null; then
         log_warning "User $SERVICE_USER already exists"
     else
-        useradd -r -s /bin/bash -d "$INSTALL_DIR" -m "$SERVICE_USER"
+        useradd -r -s /bin/bash -d /home/pelican -m "$SERVICE_USER"
         log_success "User $SERVICE_USER created"
     fi
 }

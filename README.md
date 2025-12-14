@@ -25,20 +25,36 @@ Automated installation script for Pelican Panel and Wings.
 | **Rocky Linux** | 9 | ⚠️ Partially Supported | No SQLite Support |
 | **Rocky Linux** | 8 | ⚠️ Partially Supported | No SQLite Support |
 
+### Other OS Support
+
+The installer will attempt to auto-detect and use appropriate package manager for:
+- Other Debian-based distributions (uses `apt`)
+- Other RHEL-based distributions (uses `dnf` or `yum`)
+
 ## Requirements
 
 - Root access
 - Internet connection
 - At least 2GB RAM
 - At least 10GB disk space
+- PHP 8.4, 8.3, or 8.2 (installed automatically)
+- MySQL 8+ or MariaDB 10.6+ (installed automatically)
 
 ## Installation
 
-### Quick Install
+### Quick Install (Interactive)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh | bash
 ```
+
+### Quick Install (Non-Interactive - Auto Defaults)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh | bash
+```
+
+The script will use auto-generated values if run non-interactively.
 
 ### Manual Install
 
@@ -51,105 +67,91 @@ sudo ./install.sh
 ## What the Installer Does
 
 ### Automatic Detection
-- Detects your operating system (Ubuntu, Debian, Alma Linux, Rocky Linux, CentOS)
+- Detects your operating system (Ubuntu, Debian, Alma Linux, Rocky Linux, CentOS, or other)
 - Detects OS version
-- Selects appropriate package manager
+- Selects appropriate package manager (`apt`, `dnf`, or `yum`)
 
 ### System Dependencies
-- Installs required system packages (curl, wget, unzip, git, tar)
-- Installs PHP 8.2+ with all required extensions
+- Installs required system packages (curl, wget, unzip, git, tar, software-properties-common)
+- Installs PHP 8.4/8.3/8.2 with all required extensions:
+  - `gd`, `mysql`, `mbstring`, `bcmath`, `xml`, `curl`, `zip`, `intl`, `sqlite3`, `fpm`
 - Installs Composer
-- Installs Node.js 18.x
-- Optional: Installs MySQL/MariaDB
+- Installs Node.js 18.x (if needed for frontend assets)
+- Installs MariaDB/MySQL 10.6+
 
 ### Pelican Panel
 - Creates pelican system user
-- Clones Pelican Panel repository
-- Installs PHP and Node.js dependencies
-- Sets up environment configuration
-- Builds frontend assets
+- Downloads latest Pelican Panel release from GitHub
+- Installs PHP dependencies via Composer
+- Sets up environment configuration (.env)
+- Builds frontend assets (if package.json exists)
 - Creates systemd service for queue worker
-- Configures Nginx (optional)
-- Sets up cron jobs
+- Configures Nginx web server
+- Sets up cron jobs for scheduled tasks
+- Runs database migrations and seeding
+- Creates admin user automatically
 
 ### Pelican Wings (Optional)
-- Downloads latest Wings binary
-- Creates Wings configuration directory
+- Installs Docker CE automatically
+- Downloads latest Wings binary to `/usr/local/bin/wings`
+- Creates Wings configuration directory (`/etc/pelican`)
 - Creates systemd service for Wings daemon
+- Provides instructions for getting configuration from Panel
 
-## Post-Installation Steps
+## Installation Process
 
-### 1. Configure Database
+1. **Input Configuration** (Interactive mode):
+   - Domain name or IP address
+   - Database name, username, password
+   - Admin email, username, password
+   - Wings installation choice
 
-Edit `/opt/pelican/panel/.env` and configure your database:
+2. **Automatic Installation**:
+   - All dependencies are installed automatically
+   - Database is created and configured
+   - Panel is downloaded and configured
+   - Admin user is created
+   - Services are started
 
-```env
-DB_CONNECTION=mysql
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_DATABASE=pelican
-DB_USERNAME=pelican
-DB_PASSWORD=your_password
-```
+## Post-Installation
 
-### 2. Run Migrations
+### Access Information
 
-```bash
-cd /opt/pelican/panel
-php artisan migrate --seed
-```
+After installation, you will see:
+- Panel URL
+- Admin credentials (email, username, password)
+- Database credentials
 
-### 3. Create Admin User
-
-```bash
-cd /opt/pelican/panel
-php artisan p:user:make
-```
-
-### 4. Start Services
+### Service Management
 
 ```bash
-systemctl enable --now pelican-panel
-```
-
-If you installed Wings:
-
-```bash
-systemctl enable --now pelican-wings
-```
-
-### 5. Configure Wings (If Installed)
-
-Edit `/etc/pelican/config.yml` with your Wings configuration.
-
-## Service Management
-
-### Panel Queue Worker
-
-```bash
+# Panel Queue Worker
 systemctl start pelican-panel
 systemctl stop pelican-panel
 systemctl restart pelican-panel
 systemctl status pelican-panel
-```
 
-### Wings Daemon
-
-```bash
+# Wings Daemon (if installed)
 systemctl start pelican-wings
 systemctl stop pelican-wings
 systemctl restart pelican-wings
 systemctl status pelican-wings
 ```
 
+### Configure Wings (If Installed)
+
+1. Login to Panel
+2. Go to **Admin → Nodes → Configuration**
+3. Copy the configuration code
+4. Save to `/etc/pelican/config.yml`
+5. Start Wings: `systemctl enable --now pelican-wings`
+
 ## Directory Structure
 
 ```
-/opt/pelican/
-├── panel/          # Panel installation
-└── wings/          # Wings binary (if installed)
-
-/etc/pelican/       # Wings configuration
+/var/www/pelican/          # Panel installation
+/etc/pelican/              # Wings configuration
+/usr/local/bin/wings       # Wings binary
 /etc/systemd/system/
 ├── pelican-panel.service
 └── pelican-wings.service
@@ -163,7 +165,7 @@ systemctl status pelican-wings
 php -v
 ```
 
-Should be PHP 8.2 or higher.
+Should be PHP 8.4, 8.3, or 8.2.
 
 ### Check PHP Extensions
 
@@ -171,7 +173,7 @@ Should be PHP 8.2 or higher.
 php -m
 ```
 
-Required extensions: bcmath, ctype, curl, dom, fileinfo, gd, hash, iconv, intl, json, mbstring, openssl, pdo, pdo_mysql, pdo_pgsql, pdo_sqlite, session, tokenizer, xml, zip
+Required extensions: `gd`, `mysql`, `mbstring`, `bcmath`, `xml`, `curl`, `zip`, `intl`, `sqlite3`, `fpm`
 
 ### Check Service Status
 
@@ -183,15 +185,41 @@ systemctl status pelican-wings
 ### View Logs
 
 ```bash
+# Panel logs
 journalctl -u pelican-panel -f
+
+# Wings logs
 journalctl -u pelican-wings -f
+
+# Nginx logs
+tail -f /var/log/nginx/error.log
+tail -f /var/log/nginx/access.log
 ```
 
-## Documentation
+### Check Database Connection
 
-- [Pelican Panel Documentation](https://pelican.dev/docs/panel/getting-started)
-- [Pelican Wings Documentation](https://pelican.dev/docs/wings/install)
+```bash
+mysql -u pelican -p -e "SHOW DATABASES;"
+```
 
-## License
+### Reset Admin Password
 
-MIT
+```bash
+cd /var/www/pelican
+php artisan p:user:make
+```
+
+## Notes
+
+- The installer follows official Pelican documentation
+- Panel is installed to `/var/www/pelican` (official default)
+- Wings binary is installed to `/usr/local/bin/wings` (official default)
+- All passwords are auto-generated if not provided
+- Non-interactive mode uses safe defaults for automated deployments
+
+## Support
+
+For issues related to:
+- **Installer**: Open an issue on [GitHub](https://github.com/yemobyte/pelican)
+- **Pelican Panel**: Visit [Pelican Documentation](https://pelican.dev/docs)
+- **Pelican Support**: Visit [Pelican Support](https://pelican.dev/support)
