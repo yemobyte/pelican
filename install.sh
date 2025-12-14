@@ -622,19 +622,38 @@ setup_nginx() {
         systemctl enable nginx
     fi
     
-    if lsof -i:80 &>/dev/null || ss -tuln | grep -q ':80 '; then
-        info "Port 80 is already in use, checking what's using it..."
-        PORT_80_PID=$(lsof -ti:80 2>/dev/null | head -1)
-        if [ -n "$PORT_80_PID" ]; then
-            PORT_80_CMD=$(ps -p $PORT_80_PID -o comm= 2>/dev/null)
-            warning "Port 80 is used by: $PORT_80_CMD (PID: $PORT_80_PID)"
-            if systemctl is-active --quiet nginx; then
-                systemctl stop nginx
-                sleep 2
-            elif systemctl is-active --quiet apache2; then
-                warning "Apache2 is running on port 80, stopping it..."
+    if command -v lsof &> /dev/null; then
+        if lsof -i:80 &>/dev/null; then
+            info "Port 80 is already in use, checking what's using it..."
+            PORT_80_PID=$(lsof -ti:80 2>/dev/null | head -1)
+            if [ -n "$PORT_80_PID" ]; then
+                PORT_80_CMD=$(ps -p $PORT_80_PID -o comm= 2>/dev/null)
+                warning "Port 80 is used by: $PORT_80_CMD (PID: $PORT_80_PID)"
+                if [ "$PORT_80_CMD" = "nginx" ] || [ "$PORT_80_CMD" = "nginx:" ]; then
+                    systemctl stop nginx
+                    sleep 2
+                elif [ "$PORT_80_CMD" = "apache2" ] || [ "$PORT_80_CMD" = "httpd" ]; then
+                    warning "Apache is running on port 80, stopping it..."
+                    systemctl stop apache2 2>/dev/null || systemctl stop httpd 2>/dev/null
+                    systemctl disable apache2 2>/dev/null || systemctl disable httpd 2>/dev/null
+                    sleep 2
+                else
+                    warning "Unknown service using port 80, attempting to stop nginx anyway..."
+                    systemctl stop nginx 2>/dev/null || true
+                    sleep 2
+                fi
+            fi
+        fi
+    elif command -v ss &> /dev/null; then
+        if ss -tuln | grep -q ':80 '; then
+            if systemctl is-active --quiet apache2; then
+                warning "Apache2 is running, stopping it..."
                 systemctl stop apache2
                 systemctl disable apache2
+                sleep 2
+            fi
+            if systemctl is-active --quiet nginx; then
+                systemctl stop nginx
                 sleep 2
             fi
         fi
@@ -712,11 +731,29 @@ EOF
         exit 1
     }
     
+    if command -v lsof &> /dev/null; then
+        if lsof -i:80 &>/dev/null; then
+            PORT_80_PID=$(lsof -ti:80 2>/dev/null | head -1)
+            if [ -n "$PORT_80_PID" ]; then
+                PORT_80_CMD=$(ps -p $PORT_80_PID -o comm= 2>/dev/null)
+                if [ "$PORT_80_CMD" != "nginx" ] && [ "$PORT_80_CMD" != "nginx:" ]; then
+                    error "Port 80 is still in use by $PORT_80_CMD (PID: $PORT_80_PID)"
+                    error "Please stop the service using port 80 manually: kill $PORT_80_PID"
+                    exit 1
+                fi
+            fi
+        fi
+    fi
+    
     if systemctl is-active --quiet nginx; then
         systemctl reload nginx
     else
         systemctl start nginx || {
             error "Failed to start nginx"
+            if lsof -i:80 &>/dev/null; then
+                error "Port 80 is still in use. Checking..."
+                lsof -i:80
+            fi
             journalctl -u nginx --no-pager -n 20
             exit 1
         }
