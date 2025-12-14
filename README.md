@@ -13,13 +13,13 @@ Automated installation script for Pelican Panel.
 ## Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/pelican-panel-installer/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh | bash
 ```
 
 Or download and run manually:
 
 ```bash
-wget https://raw.githubusercontent.com/YOUR_USERNAME/pelican-panel-installer/main/install.sh
+wget https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh
 chmod +x install.sh
 sudo ./install.sh
 ```
