@@ -112,17 +112,16 @@ install_pelican() {
         mv "$PANEL_DIR" "${PANEL_DIR}.backup.$(date +%Y%m%d_%H%M%S)"
     fi
     
-    log_info "Downloading Pelican Panel..."
-    curl -L -o pelican-panel.zip https://github.com/pelican-dev/panel/releases/latest/download/panel.zip
-    
-    if [ ! -f pelican-panel.zip ]; then
-        log_error "Failed to download Pelican Panel"
+    log_info "Cloning Pelican Panel repository..."
+    if command -v git &> /dev/null; then
+        git clone https://github.com/pelican-dev/panel.git "$PANEL_DIR" || {
+            log_error "Failed to clone Pelican Panel repository"
+            exit 1
+        }
+    else
+        log_error "git is required but not installed"
         exit 1
     fi
-    
-    log_info "Extracting Pelican Panel..."
-    unzip -q pelican-panel.zip -d "$PANEL_DIR"
-    rm pelican-panel.zip
     
     cd "$PANEL_DIR"
     
