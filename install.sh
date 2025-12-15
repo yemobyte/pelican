@@ -1468,11 +1468,49 @@ EOF
     systemctl daemon-reload
     
     success "Wings service created"
-    info "To configure Wings:"
-    info "1. Login to Panel: $PANEL_URL"
-    info "2. Go to Admin -> Nodes -> Configuration"
-    info "3. Copy the configuration and save to /etc/pelican/config.yml"
-    info "4. Start Wings: systemctl enable --now pelican-wings"
+    
+    if [ -f "$PANEL_DIR/.env" ] && [ -f "$PANEL_DIR/artisan" ]; then
+        info "Attempting to get Wings configuration from Panel..."
+        
+        PANEL_URL_FROM_ENV=$(grep "^APP_URL=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d '"' || echo "$PANEL_URL")
+        
+        info "To complete Wings setup:"
+        info "1. Login to Panel: $PANEL_URL_FROM_ENV"
+        info "2. Go to Admin -> Nodes"
+        info "3. Click 'Create New' to add a new node"
+        info "4. Fill in the node details:"
+        info "   - Name: Your server name"
+        info "   - Description: Optional description"
+        info "   - FQDN: Your server IP or domain (e.g., $(hostname -I | awk '{print $1}'))"
+        info "   - Communication Port: 2022"
+        info "   - SFTP Port: 2022"
+        info "   - Memory: Total server memory"
+        info "   - Disk: Total server disk space"
+        info "5. After creating the node, go to the node's 'Configuration' tab"
+        info "6. Copy the entire configuration YAML"
+        info "7. Save it to /etc/pelican/config.yml:"
+        info "   sudo nano /etc/pelican/config.yml"
+        info "   (Paste the configuration and save)"
+        info "8. Set correct permissions:"
+        info "   sudo chown pelican:pelican /etc/pelican/config.yml"
+        info "   sudo chmod 600 /etc/pelican/config.yml"
+        info "9. Start Wings:"
+        info "   sudo systemctl enable --now pelican-wings"
+        info "10. Check Wings status:"
+        info "    sudo systemctl status pelican-wings"
+        info "    sudo journalctl -u pelican-wings -f"
+        echo ""
+        warning "Wings will not start until config.yml is created!"
+        warning "Node will appear red in Panel until Wings is running with valid config.yml"
+    else
+        info "To configure Wings:"
+        info "1. Login to Panel: $PANEL_URL"
+        info "2. Go to Admin -> Nodes -> Create New"
+        info "3. After creating node, go to Configuration tab"
+        info "4. Copy the configuration and save to /etc/pelican/config.yml"
+        info "5. Set permissions: chown pelican:pelican /etc/pelican/config.yml && chmod 600 /etc/pelican/config.yml"
+        info "6. Start Wings: systemctl enable --now pelican-wings"
+    fi
 }
 
 setup_firewall() {
