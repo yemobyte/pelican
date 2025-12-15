@@ -1770,8 +1770,6 @@ update_panel() {
     
     check_root
     
-    cd "$PANEL_DIR"
-    
     OWNER=$(stat -c '%U' "$PANEL_DIR" 2>/dev/null || echo "$SERVICE_USER")
     GROUP=$(stat -c '%G' "$PANEL_DIR" 2>/dev/null || echo "$SERVICE_USER")
     
@@ -1807,68 +1805,76 @@ update_panel() {
         fi
     fi
     
-    info "Entering maintenance mode..."
-    sudo -u "$OWNER" php artisan down || true
-    
     info "Downloading latest Panel release..."
     cd "$PANEL_DIR"
-    curl -L https://github.com/pelican-dev/panel/releases/latest/download/panel.tar.gz | tar -xzv || {
+    curl -L -o panel.tar.gz https://github.com/pelican-dev/panel/releases/latest/download/panel.tar.gz || {
         error "Failed to download Panel update"
-        sudo -u "$OWNER" php artisan up || true
         exit 1
     }
     
-    info "Setting permissions..."
-    chmod -R 755 "$PANEL_DIR"
-    chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
-    chown -R "$OWNER:$GROUP" "$PANEL_DIR"
-    
-    info "Updating PHP dependencies..."
-    COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interaction || {
-        error "Failed to update PHP dependencies"
-        sudo -u "$OWNER" php artisan up || true
+    info "Deleting old files..."
+    find "$PANEL_DIR" -mindepth 1 -maxdepth 1 ! -name 'backup' ! -name 'panel.tar.gz' -exec rm -rf {} + || {
+        error "Failed to delete old files"
         exit 1
     }
     
-    info "Clearing caches..."
-    sudo -u "$OWNER" php artisan config:clear
-    sudo -u "$OWNER" php artisan cache:clear
-    sudo -u "$OWNER" php artisan view:clear
+    info "Extracting update..."
+    tar -xzf panel.tar.gz -C "$PANEL_DIR" || {
+        error "Failed to extract update"
+        exit 1
+    }
+    rm -f panel.tar.gz
     
-    info "Running migrations..."
-    sudo -u "$OWNER" php artisan migrate --force || {
-        warning "Migrations failed, but continuing..."
+    info "Restoring .env..."
+    cp -a "$BACKUP_DIR/.env.backup" "$PANEL_DIR/.env" || {
+        error "Failed to restore .env file"
+        exit 1
     }
     
-    if [ -f "$PANEL_DIR/package.json" ]; then
-        info "Rebuilding frontend assets..."
-        if [ -f "$PANEL_DIR/package-lock.json" ]; then
-            sudo -u "$OWNER" npm ci --legacy-peer-deps || {
-                sudo -u "$OWNER" npm install --legacy-peer-deps
-            }
-        else
-            sudo -u "$OWNER" npm install --legacy-peer-deps
-        fi
-        sudo -u "$OWNER" npm run build || {
-            warning "Failed to build assets"
+    if [ -d "$BACKUP_DIR/storage/app/public" ]; then
+        info "Restoring storage/app/public..."
+        cp -a "$BACKUP_DIR/storage/app/public" "$PANEL_DIR/storage/app/" || {
+            warning "Failed to restore storage/app/public"
         }
     fi
     
-    info "Optimizing application..."
-    sudo -u "$OWNER" php artisan config:cache
-    sudo -u "$OWNER" php artisan route:cache
-    sudo -u "$OWNER" php artisan view:cache
+    if [ "$DB_CONNECTION" = "sqlite" ] && [ -f "$BACKUP_DIR/$DB_DATABASE.backup" ]; then
+        info "Restoring SQLite database..."
+        cp -a "$BACKUP_DIR/$DB_DATABASE.backup" "$PANEL_DIR/database/$DB_DATABASE" || {
+            warning "Failed to restore SQLite database"
+        }
+    fi
     
-    info "Exiting maintenance mode..."
-    sudo -u "$OWNER" php artisan up || true
+    cd "$PANEL_DIR"
     
-    info "Restarting Panel service..."
-    systemctl restart pelican-panel || {
-        warning "Failed to restart Panel service"
+    info "Installing PHP dependencies..."
+    COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interaction || {
+        error "Failed to install PHP dependencies"
+        exit 1
     }
     
+    info "Optimizing..."
+    sudo -u "$OWNER" php artisan optimize:clear
+    sudo -u "$OWNER" php artisan filament:optimize 2>/dev/null || true
+    
+    info "Creating storage symlinks..."
+    sudo -u "$OWNER" php artisan storage:link 2>/dev/null || true
+    
+    info "Updating database..."
+    sudo -u "$OWNER" php artisan migrate --seed --force || {
+        warning "Database migration/seeding failed"
+    }
+    
+    info "Setting permissions..."
+    chmod -R 755 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
+    chown -R "$OWNER:$GROUP" "$PANEL_DIR"
+    
+    info "Restarting queue worker..."
+    sudo -u "$OWNER" php artisan queue:restart 2>/dev/null || true
+    
+    systemctl restart pelican-panel 2>/dev/null || true
+    
     success "Panel updated successfully!"
-    info "Backup saved to: $BACKUP_DIR"
 }
 
 update_wings() {
