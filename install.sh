@@ -2026,13 +2026,21 @@ update_panel() {
     }
     
     info "Setting permissions..."
-    chmod -R 755 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
     chown -R "$OWNER:$GROUP" "$PANEL_DIR"
+    find "$PANEL_DIR/public" -type d -exec chmod 775 {} \; 2>/dev/null || true
+    find "$PANEL_DIR/public" -type f -exec chmod 664 {} \; 2>/dev/null || true
+    chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
+    find "$PANEL_DIR/storage/logs" -type f -name "*.log" -exec chmod 664 {} \; 2>/dev/null || true
+    chown -R "$OWNER:$GROUP" "$PANEL_DIR/vendor" 2>/dev/null || true
     
     info "Restarting queue worker..."
     sudo -u "$OWNER" php artisan queue:restart 2>/dev/null || true
     
     systemctl restart pelican-panel 2>/dev/null || true
+    PHP_FPM_SERVICE=$(systemctl list-units --type=service --state=running | awk '/php.*fpm/ {print $1; exit}')
+    if [ -n "$PHP_FPM_SERVICE" ]; then
+        systemctl restart "$PHP_FPM_SERVICE" 2>/dev/null || true
+    fi
     
     success "Panel updated successfully!"
 }
@@ -2058,16 +2066,19 @@ update_wings() {
     
     info "Stopping Wings service..."
     systemctl stop pelican-wings 2>/dev/null || true
+    sleep 1
     
     info "Downloading latest Wings..."
-    curl -L -o /usr/local/bin/wings "https://github.com/pelican-dev/wings/releases/latest/download/wings_linux_${ARCH}" || {
+    TMP_WINGS=$(mktemp)
+    if ! curl -L -o "$TMP_WINGS" "https://github.com/pelican-dev/wings/releases/latest/download/wings_linux_${ARCH}"; then
+        rm -f "$TMP_WINGS"
         error "Failed to download Wings"
         systemctl start pelican-wings 2>/dev/null || true
         exit 1
-    }
-    
-    chmod u+x /usr/local/bin/wings
-    chown "$SERVICE_USER:$SERVICE_USER" /usr/local/bin/wings
+    fi
+    chmod u+x "$TMP_WINGS"
+    chown "$SERVICE_USER:$SERVICE_USER" "$TMP_WINGS"
+    mv "$TMP_WINGS" /usr/local/bin/wings
     
     info "Starting Wings service..."
     systemctl start pelican-wings || {
