@@ -951,6 +951,9 @@ setup_panel_environment() {
         sudo -u "$SERVICE_USER" sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=\"$DB_PASS_ENV\"|g" .env
     fi
     
+    chown "$SERVICE_USER:$SERVICE_USER" .env
+    chmod 644 .env
+    
     info "Verifying .env file..."
     if grep -q "DB_PASSWORD=\"$DB_PASS_ENV\"" .env || grep -q "DB_PASSWORD=$DB_PASS" .env; then
         success ".env file configured correctly"
@@ -1003,12 +1006,20 @@ setup_database_migrations() {
     info "Running database migrations and seeding..."
     cd "$PANEL_DIR"
     
-    info "Verifying database connection..."
+    info "Verifying database connection from command line..."
     if mysql -u "$DB_USER" -p"$DB_PASS" -e "USE \`$DB_NAME\`; SELECT 1;" 2>/dev/null; then
-        success "Database connection verified"
+        success "Database connection verified from command line"
     else
         error "Cannot connect to database with user '$DB_USER'"
-        error "Please check database credentials in .env file"
+        error "Please check database credentials"
+        
+        info "Checking .env file..."
+        if [ -f .env ]; then
+            info "Current DB_PASSWORD in .env:"
+            grep "DB_PASSWORD" .env | sed 's/DB_PASSWORD=.*/DB_PASSWORD=***/'
+        fi
+        
+        error "Database connection failed. Please verify credentials manually."
         exit 1
     fi
     
@@ -1017,10 +1028,24 @@ setup_database_migrations() {
     sudo -u "$SERVICE_USER" php artisan cache:clear
     
     info "Testing database connection from Laravel..."
-    if sudo -u "$SERVICE_USER" php artisan tinker --execute="DB::connection()->getPdo(); echo 'OK';" 2>/dev/null | grep -q "OK"; then
+    DB_CONNECTION_TEST=$(sudo -u "$SERVICE_USER" php artisan tinker --execute="try { DB::connection()->getPdo(); echo 'OK'; } catch (Exception \$e) { echo 'FAIL: ' . \$e->getMessage(); }" 2>/dev/null)
+    
+    if echo "$DB_CONNECTION_TEST" | grep -q "OK"; then
         success "Laravel database connection verified"
     else
-        warning "Laravel database connection test failed, but continuing..."
+        error "Laravel database connection test failed!"
+        if [ -n "$DB_CONNECTION_TEST" ]; then
+            error "$DB_CONNECTION_TEST"
+        fi
+        
+        info "Checking .env configuration..."
+        if [ -f .env ]; then
+            info "Database configuration in .env:"
+            grep -E "DB_(CONNECTION|HOST|PORT|DATABASE|USERNAME|PASSWORD)" .env | sed 's/PASSWORD=.*/PASSWORD=***/'
+        fi
+        
+        error "Please fix database credentials in .env file and try again"
+        exit 1
     fi
     
     info "Running migrations..."
@@ -1483,7 +1508,14 @@ setup_permissions() {
     info "Setting up permissions..."
     
     chown -R "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR"
-    chmod -R 755 "$PANEL_DIR"
+    find "$PANEL_DIR" -type f -exec chmod 644 {} \;
+    find "$PANEL_DIR" -type d -exec chmod 755 {} \;
+    
+    if [ -f "$PANEL_DIR/.env" ]; then
+        chown "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR/.env"
+        chmod 644 "$PANEL_DIR/.env"
+        info ".env file permissions set correctly"
+    fi
     
     if [ -d "$PANEL_DIR/storage" ]; then
         chmod -R 775 "$PANEL_DIR/storage"
@@ -1497,6 +1529,10 @@ setup_permissions() {
     
     if [ -d "$PANEL_DIR/public" ]; then
         chmod -R 755 "$PANEL_DIR/public"
+    fi
+    
+    if [ -d "$PANEL_DIR/vendor" ]; then
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR/vendor"
     fi
     
     if [ "$INSTALL_WINGS" = true ]; then
