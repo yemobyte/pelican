@@ -552,39 +552,70 @@ install_composer() {
 }
 
 install_nodejs() {
-    if ! command -v node &> /dev/null; then
-        info "Installing Node.js 22.x..."
-        
-        case "$PKG_MANAGER" in
-            apt)
-                curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-                apt-get install -y nodejs
-                ;;
-            dnf|yum)
-                curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-                $PKG_MANAGER install -y nodejs
-                ;;
-        esac
-        
-        success "Node.js installed"
-    else
-        NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-        if [ "$NODE_VERSION" -lt 20 ]; then
-            info "Node.js version is too old, upgrading to 22.x..."
-            case "$PKG_MANAGER" in
-                apt)
-                    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-                    apt-get install -y nodejs
-                    ;;
-                dnf|yum)
-                    curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-                    $PKG_MANAGER install -y nodejs
-                    ;;
-            esac
-            success "Node.js upgraded to 22.x"
+    info "Installing Node.js 22.x..."
+    
+    NODE_NEEDS_INSTALL=false
+    NODE_NEEDS_UPGRADE=false
+    
+    if command -v node &> /dev/null; then
+        NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d. -f1)
+        if [ "$NODE_VERSION" -ge 22 ]; then
+            info "Node.js 22.x or higher already installed"
+            return
         else
-            info "Node.js already installed"
+            NODE_NEEDS_UPGRADE=true
+            info "Node.js $NODE_VERSION detected, upgrading to 22.x..."
         fi
+    else
+        NODE_NEEDS_INSTALL=true
+    fi
+    
+    case "$PKG_MANAGER" in
+        apt)
+            if [ "$NODE_NEEDS_UPGRADE" = true ]; then
+                if command -v node &> /dev/null; then
+                    apt-get remove -y nodejs npm 2>/dev/null || true
+                    rm -rf /usr/lib/node_modules /usr/include/node /usr/share/man/man1/node* 2>/dev/null || true
+                fi
+            fi
+            curl -fsSL https://deb.nodesource.com/setup_22.x | bash - || {
+                error "Failed to add NodeSource repository"
+                exit 1
+            }
+            apt-get install -y nodejs || {
+                error "Failed to install Node.js"
+                exit 1
+            }
+            ;;
+        dnf|yum)
+            if [ "$NODE_NEEDS_UPGRADE" = true ]; then
+                if command -v node &> /dev/null; then
+                    $PKG_MANAGER remove -y nodejs npm 2>/dev/null || true
+                fi
+            fi
+            curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - || {
+                error "Failed to add NodeSource repository"
+                exit 1
+            }
+            $PKG_MANAGER install -y nodejs || {
+                error "Failed to install Node.js"
+                exit 1
+            }
+            ;;
+    esac
+    
+    if command -v node &> /dev/null; then
+        NODE_VERSION=$(node -v)
+        NODE_MAJOR=$(node -v | cut -d'v' -f2 | cut -d. -f1)
+        if [ "$NODE_MAJOR" -ge 22 ]; then
+            success "Node.js $NODE_VERSION installed"
+        else
+            error "Node.js installation failed or wrong version installed"
+            exit 1
+        fi
+    else
+        error "Node.js installation failed"
+        exit 1
     fi
 }
 
