@@ -68,13 +68,13 @@ detect_os() {
         OS_TYPE="$ID"
         OS_VERSION="$VERSION_ID"
     elif [ -f /etc/redhat-release ]; then
-        if grep -q "CentOS" /etc/redhat-release; then
+        if grep -qi "CentOS" /etc/redhat-release; then
             OS_TYPE="centos"
             OS_VERSION=$(grep -oE '[0-9]+' /etc/redhat-release | head -1)
-        elif grep -q "Rocky" /etc/redhat-release; then
+        elif grep -qi "Rocky" /etc/redhat-release; then
             OS_TYPE="rocky"
             OS_VERSION=$(grep -oE '[0-9]+' /etc/redhat-release | head -1)
-        elif grep -q "AlmaLinux" /etc/redhat-release; then
+        elif grep -qi "AlmaLinux" /etc/redhat-release; then
             OS_TYPE="almalinux"
             OS_VERSION=$(grep -oE '[0-9]+' /etc/redhat-release | head -1)
         fi
@@ -82,20 +82,58 @@ detect_os() {
     
     case "$OS_TYPE" in
         ubuntu)
-            if [[ "$OS_VERSION" != "22.04" && "$OS_VERSION" != "24.04" ]]; then
-                warning "Ubuntu $OS_VERSION detected. Supported versions: 22.04, 24.04"
+            if [[ "$OS_VERSION" == "22.04" || "$OS_VERSION" == "24.04" ]]; then
+                if [[ "$OS_VERSION" == "24.04" ]]; then
+                    success "Detected: $OS_TYPE $OS_VERSION (Recommended)"
+                else
+                    success "Detected: $OS_TYPE $OS_VERSION"
+                fi
+            else
+                error "Ubuntu $OS_VERSION is not fully supported!"
+                error "Fully supported versions: 22.04, 24.04 (Recommended)"
+                echo -n "Continue anyway? (y/n) [n]: "
+                read CONTINUE
+                CONTINUE=${CONTINUE:-n}
+                if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+                    exit 1
+                fi
+                warning "Continuing with unsupported Ubuntu version"
             fi
             PKG_MANAGER="apt"
             ;;
         debian)
-            if [[ "$OS_VERSION" != "11" && "$OS_VERSION" != "12" ]]; then
-                warning "Debian $OS_VERSION detected. Supported versions: 11, 12"
+            if [[ "$OS_VERSION" == "12" ]]; then
+                success "Detected: $OS_TYPE $OS_VERSION"
+            elif [[ "$OS_VERSION" == "11" ]]; then
+                warning "Debian $OS_VERSION detected - Partially Supported (No SQLite Support)"
+                echo -n "Continue anyway? (y/n) [n]: "
+                read CONTINUE
+                CONTINUE=${CONTINUE:-n}
+                if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+                    exit 1
+                fi
+            else
+                error "Debian $OS_VERSION is not supported!"
+                error "Supported versions: 12 (Fully), 11 (Partially - No SQLite)"
+                exit 1
             fi
             PKG_MANAGER="apt"
             ;;
         almalinux|rocky|centos)
-            if [[ "$OS_VERSION" != "8" && "$OS_VERSION" != "9" && "$OS_VERSION" != "10" ]]; then
-                warning "$OS_TYPE $OS_VERSION detected. Supported versions: 8, 9, 10"
+            if [[ "$OS_VERSION" == "10" ]]; then
+                success "Detected: $OS_TYPE $OS_VERSION"
+            elif [[ "$OS_VERSION" == "9" || "$OS_VERSION" == "8" ]]; then
+                warning "$OS_TYPE $OS_VERSION detected - Partially Supported (No SQLite Support)"
+                echo -n "Continue anyway? (y/n) [n]: "
+                read CONTINUE
+                CONTINUE=${CONTINUE:-n}
+                if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+                    exit 1
+                fi
+            else
+                error "$OS_TYPE $OS_VERSION is not supported!"
+                error "Supported versions: 10 (Fully), 9/8 (Partially - No SQLite)"
+                exit 1
             fi
             if command -v dnf &> /dev/null; then
                 PKG_MANAGER="dnf"
@@ -105,12 +143,11 @@ detect_os() {
             ;;
         *)
             error "Unsupported operating system: $OS_TYPE"
-            info "Supported OS: Ubuntu 22.04/24.04, Debian 11/12, Alma Linux 8/9/10, Rocky Linux 8/9/10, CentOS 10"
+            info "Fully Supported: Ubuntu 22.04/24.04, Debian 12, Alma Linux 10, Rocky Linux 10, CentOS 10"
+            info "Partially Supported: Debian 11, Alma Linux 9/8, Rocky Linux 9/8 (No SQLite)"
             exit 1
             ;;
     esac
-    
-    success "Detected: $OS_TYPE $OS_VERSION"
 }
 
 install_system_dependencies() {
@@ -250,20 +287,63 @@ install_php() {
                 fi
                 ;;
             dnf|yum)
-                if [ "$OS_TYPE" == "almalinux" ] || [ "$OS_TYPE" == "rocky" ] || [ "$OS_TYPE" == "centos" ]; then
+                if [ "$OS_TYPE" = "almalinux" ] || [ "$OS_TYPE" = "rocky" ] || [ "$OS_TYPE" = "centos" ]; then
                     if ! rpm -q epel-release &>/dev/null; then
-                        $PKG_MANAGER install -y epel-release
+                        info "Installing EPEL repository..."
+                        $PKG_MANAGER install -y epel-release || {
+                            error "Failed to install EPEL repository"
+                            exit 1
+                        }
                     fi
+                    
                     if [ ! -f /etc/yum.repos.d/remi.repo ]; then
-                        $PKG_MANAGER install -y https://rpms.remirepo.net/enterprise/remi-release-${OS_VERSION}.rpm
+                        info "Installing Remi repository..."
+                        if [ "$OS_VERSION" = "10" ]; then
+                            REMI_URL="https://rpms.remirepo.net/enterprise/remi-release-${OS_VERSION}.rpm"
+                        elif [ "$OS_VERSION" = "9" ]; then
+                            REMI_URL="https://rpms.remirepo.net/enterprise/remi-release-9.rpm"
+                        elif [ "$OS_VERSION" = "8" ]; then
+                            REMI_URL="https://rpms.remirepo.net/enterprise/remi-release-8.rpm"
+                        else
+                            REMI_URL="https://rpms.remirepo.net/enterprise/remi-release-${OS_VERSION}.rpm"
+                        fi
+                        
+                        $PKG_MANAGER install -y "$REMI_URL" || {
+                            error "Failed to install Remi repository"
+                            exit 1
+                        }
                     fi
+                    
                     $PKG_MANAGER module reset php -y 2>/dev/null || true
-                    $PKG_MANAGER module enable php:remi-8.4 -y 2>/dev/null || $PKG_MANAGER module enable php:remi-8.3 -y 2>/dev/null || $PKG_MANAGER module enable php:remi-8.2 -y
+                    
+                    if [ "$PKG_MANAGER" = "dnf" ]; then
+                        $PKG_MANAGER module enable php:remi-8.4 -y 2>/dev/null || \
+                        $PKG_MANAGER module enable php:remi-8.3 -y 2>/dev/null || \
+                        $PKG_MANAGER module enable php:remi-8.2 -y || {
+                            error "Failed to enable PHP module"
+                            exit 1
+                        }
+                    fi
                     
                     if [ "$PHP_NEEDS_INSTALL" = true ]; then
-                        $PKG_MANAGER install -y php php-cli php-fpm php-common php-mysqlnd php-zip php-gd php-mbstring php-curl php-xml php-bcmath php-intl php-sqlite3
+                        info "Installing PHP packages..."
+                        $PKG_MANAGER install -y php php-cli php-fpm php-common php-mysqlnd php-zip php-gd php-mbstring php-curl php-xml php-bcmath php-intl || {
+                            error "Failed to install PHP packages"
+                            exit 1
+                        }
+                        
+                        if [ "$OS_VERSION" = "10" ]; then
+                            $PKG_MANAGER install -y php-sqlite3 || {
+                                warning "Failed to install php-sqlite3, continuing without SQLite support"
+                            }
+                        else
+                            warning "SQLite not available for $OS_TYPE $OS_VERSION (partially supported)"
+                        fi
                     elif [ "$PHP_FPM_NEEDS_INSTALL" = true ]; then
-                        $PKG_MANAGER install -y php-fpm
+                        $PKG_MANAGER install -y php-fpm || {
+                            error "Failed to install PHP-FPM"
+                            exit 1
+                        }
                     fi
                 fi
                 ;;
@@ -382,7 +462,9 @@ install_php_extensions() {
                 fi
                 
                 if [ "$PDO_SQLITE_MISSING" = true ]; then
-                    if apt-get install -y "php${PHP_VERSION}-sqlite3" 2>/dev/null; then
+                    if [ "$OS_TYPE" = "debian" ] && [ "$OS_VERSION" = "11" ]; then
+                        warning "SQLite not available for Debian 11 (partially supported)"
+                    elif apt-get install -y "php${PHP_VERSION}-sqlite3" 2>/dev/null; then
                         info "Installed php${PHP_VERSION}-sqlite3 (pdo_sqlite)"
                     else
                         warning "Failed to install php${PHP_VERSION}-sqlite3"
@@ -415,10 +497,14 @@ install_php_extensions() {
                 fi
                 
                 if [ "$PDO_SQLITE_MISSING" = true ]; then
-                    if $PKG_MANAGER install -y "php-sqlite3" 2>/dev/null; then
-                        info "Installed php-sqlite3 (pdo_sqlite)"
+                    if [ "$OS_VERSION" = "10" ]; then
+                        if $PKG_MANAGER install -y "php-sqlite3" 2>/dev/null; then
+                            info "Installed php-sqlite3 (pdo_sqlite)"
+                        else
+                            warning "Failed to install php-sqlite3"
+                        fi
                     else
-                        warning "Failed to install php-sqlite3"
+                        warning "SQLite not available for $OS_TYPE $OS_VERSION (partially supported)"
                     fi
                 fi
                 ;;
