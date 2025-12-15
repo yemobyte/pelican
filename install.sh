@@ -1989,7 +1989,10 @@ update_panel() {
     cd "$PANEL_DIR"
     
     info "Ensuring writable storage and cache directories..."
+    sudo -u "$OWNER" rm -rf "$PANEL_DIR/public/js/filament" "$PANEL_DIR/public/css/filament" 2>/dev/null || true
     sudo -u "$OWNER" mkdir -p \
+        "$PANEL_DIR/public/js/filament" \
+        "$PANEL_DIR/public/css/filament" \
         "$PANEL_DIR/storage/app/public" \
         "$PANEL_DIR/storage/logs" \
         "$PANEL_DIR/storage/framework/cache" \
@@ -1998,13 +2001,11 @@ update_panel() {
         "$PANEL_DIR/bootstrap/cache"
     TODAY_LOG="$PANEL_DIR/storage/logs/laravel-$(date +%F).log"
     sudo -u "$OWNER" touch "$TODAY_LOG" 2>/dev/null || true
-    chown -R "$OWNER:$GROUP" "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache"
-    chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
-    find "$PANEL_DIR/storage/logs" -type f -name "*.log" -exec chmod 664 {} \; 2>/dev/null || true
-    chown -R "$OWNER:$GROUP" "$PANEL_DIR/public"
+    chown -R "$OWNER:$GROUP" "$PANEL_DIR/public" "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache"
     find "$PANEL_DIR/public" -type d -exec chmod 775 {} \; 2>/dev/null || true
     find "$PANEL_DIR/public" -type f -exec chmod 664 {} \; 2>/dev/null || true
-    rm -rf "$PANEL_DIR/public/js/filament" "$PANEL_DIR/public/css/filament" 2>/dev/null || true
+    chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
+    find "$PANEL_DIR/storage/logs" -type f -name "*.log" -exec chmod 664 {} \; 2>/dev/null || true
     
     info "Installing PHP dependencies..."
     COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interaction || {
