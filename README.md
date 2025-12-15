@@ -221,6 +221,7 @@ php artisan p:user:make
 - [Pelican Panel Documentation](https://pelican.dev/docs/panel/getting-started)
 - [Pelican Wings Documentation](https://pelican.dev/docs/wings/install)
 - [Pelican Web Server Configuration](https://pelican.dev/docs/panel/webserver-config)
+- [Troubleshooting](https://pelican.dev/docs/troubleshooting)
 
 ## Notes
 
