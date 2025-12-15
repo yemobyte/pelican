@@ -651,7 +651,8 @@ setup_database() {
         sleep 3
     fi
     
-    DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$DB_NAME';" 2>/dev/null | grep -c "$DB_NAME" 2>/dev/null | tr -d '\n' || echo "0")
+    DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$DB_NAME';" 2>/dev/null | grep -c "$DB_NAME" 2>/dev/null | head -1 | tr -d '\n\r ' || echo "0")
+    DB_EXISTS=$(echo "$DB_EXISTS" | tr -d '\n\r ')
     DB_EXISTS=${DB_EXISTS:-0}
     if [ "$DB_EXISTS" -gt 0 ] 2>/dev/null; then
         warning "Database '$DB_NAME' already exists!"
@@ -664,7 +665,8 @@ setup_database() {
                 error "Database name cannot be empty!"
                 continue
             fi
-            NEW_DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$NEW_DB_NAME';" 2>/dev/null | grep -c "$NEW_DB_NAME" 2>/dev/null | tr -d '\n' || echo "0")
+            NEW_DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$NEW_DB_NAME';" 2>/dev/null | grep -c "$NEW_DB_NAME" 2>/dev/null | head -1 | tr -d '\n\r ' || echo "0")
+            NEW_DB_EXISTS=$(echo "$NEW_DB_EXISTS" | tr -d '\n\r ')
             NEW_DB_EXISTS=${NEW_DB_EXISTS:-0}
             if [ "$NEW_DB_EXISTS" -gt 0 ] 2>/dev/null; then
                 warning "Database '$NEW_DB_NAME' also exists! Please choose another name."
@@ -676,7 +678,8 @@ setup_database() {
         done
     fi
     
-    USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$DB_USER" 2>/dev/null | tr -d '\n' || echo "0")
+    USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$DB_USER" 2>/dev/null | head -1 | tr -d '\n\r ' || echo "0")
+    USER_EXISTS=$(echo "$USER_EXISTS" | tr -d '\n\r ')
     USER_EXISTS=${USER_EXISTS:-0}
     if [ "$USER_EXISTS" -gt 0 ] 2>/dev/null; then
         warning "Database user '$DB_USER' already exists!"
@@ -701,16 +704,17 @@ setup_database() {
         done
     fi
     
-    mysql -u root -e "CREATE DATABASE \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
-        mysql -u root -proot -e "CREATE DATABASE \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
-            error "Could not create database. Please check MariaDB installation."
+    mysql -u root -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
+        mysql -u root -proot -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || {
+            error "Could not create database. Please check MariaDB installation and root password."
             exit 1
         }
     }
     
-    mysql -u root -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
-        mysql -u root -proot -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
-            error "Could not create database user."
+    mysql -u root -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
+        mysql -u root -proot -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
+            error "Could not create database user. Please check MariaDB installation and root password."
+            error "You may need to set MySQL root password or check if user already exists."
             exit 1
         }
     }
