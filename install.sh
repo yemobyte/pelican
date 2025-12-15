@@ -652,6 +652,7 @@ install_database() {
     
     case "$PKG_MANAGER" in
         apt)
+            wait_for_apt_lock
             debconf-set-selections <<< "mariadb-server mariadb-server/root_password password root"
             debconf-set-selections <<< "mariadb-server mariadb-server/root_password_again password root"
             apt-get install -y mariadb-server mariadb-client
@@ -728,10 +729,13 @@ setup_database() {
         }
     }
     
-    mysql -u root -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
-        mysql -u root -proot -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
+    mysql -u root -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || {
+        mysql -u root -proot -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || true
+    }
+    
+    mysql -u root -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
+        mysql -u root -proot -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
             error "Could not create database user. Please check MariaDB installation and root password."
-            error "You may need to set MySQL root password or check if user already exists."
             exit 1
         }
     }
@@ -746,6 +750,13 @@ setup_database() {
     mysql -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || {
         mysql -u root -proot -e "FLUSH PRIVILEGES;" 2>/dev/null || true
     }
+    
+    info "Verifying database connection..."
+    if mysql -u "$DB_USER" -p"$DB_PASS" -e "USE \`$DB_NAME\`; SELECT 1;" 2>/dev/null; then
+        success "Database connection verified"
+    else
+        warning "Could not verify database connection, but continuing..."
+    fi
     
     success "Database '$DB_NAME' and user '$DB_USER' created"
 }
@@ -900,10 +911,11 @@ setup_panel_environment() {
         sudo -u "$SERVICE_USER" sed -i "s|DB_USERNAME=.*|DB_USERNAME=$DB_USER|g" .env
     fi
     
+    DB_PASS_ESCAPED=$(echo "$DB_PASS" | sed 's/[[\.*^$()+?{|]/\\&/g')
     if ! grep -q "DB_PASSWORD" .env; then
-        echo "DB_PASSWORD=$DB_PASS" >> .env
+        echo "DB_PASSWORD=\"$DB_PASS\"" >> .env
     else
-        sudo -u "$SERVICE_USER" sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=$DB_PASS|g" .env
+        sudo -u "$SERVICE_USER" sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=\"$DB_PASS\"|g" .env
     fi
     
     sudo -u "$SERVICE_USER" php artisan config:clear
@@ -951,13 +963,31 @@ setup_database_migrations() {
     info "Running database migrations and seeding..."
     cd "$PANEL_DIR"
     
+    info "Verifying database connection..."
+    if mysql -u "$DB_USER" -p"$DB_PASS" -e "USE \`$DB_NAME\`; SELECT 1;" 2>/dev/null; then
+        success "Database connection verified"
+    else
+        error "Cannot connect to database with user '$DB_USER'"
+        error "Please check database credentials in .env file"
+        exit 1
+    fi
+    
     info "Clearing database cache..."
     sudo -u "$SERVICE_USER" php artisan config:clear
     sudo -u "$SERVICE_USER" php artisan cache:clear
     
+    info "Testing database connection from Laravel..."
+    if sudo -u "$SERVICE_USER" php artisan tinker --execute="DB::connection()->getPdo(); echo 'OK';" 2>/dev/null | grep -q "OK"; then
+        success "Laravel database connection verified"
+    else
+        warning "Laravel database connection test failed, but continuing..."
+    fi
+    
     info "Running migrations..."
     sudo -u "$SERVICE_USER" php artisan migrate --force || {
         error "Migrations failed. Please check your database configuration in .env"
+        error "Database: $DB_NAME, User: $DB_USER"
+        error "You can verify connection with: mysql -u $DB_USER -p$DB_PASS $DB_NAME"
         exit 1
     }
     
