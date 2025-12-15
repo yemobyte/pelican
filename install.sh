@@ -2057,69 +2057,6 @@ update_panel() {
     success "Panel updated successfully!"
 }
 
-update_wings() {
-    info "Updating Pelican Wings..."
-    
-    if [ ! -f "/usr/local/bin/wings" ]; then
-        error "Wings is not installed. Please install Wings first."
-        exit 1
-    fi
-    
-    check_root
-    
-    ARCH=$(uname -m)
-    if [ "$ARCH" = "x86_64" ]; then
-        ARCH="amd64"
-    elif [ "$ARCH" = "aarch64" ]; then
-        ARCH="arm64"
-    else
-        ARCH="amd64"
-    fi
-    
-    info "Stopping Wings service..."
-    systemctl stop pelican-wings 2>/dev/null || true
-    sleep 1
-    
-    info "Downloading latest Wings..."
-    TMP_WINGS=$(mktemp)
-    if ! curl -L -o "$TMP_WINGS" "https://github.com/pelican-dev/wings/releases/latest/download/wings_linux_${ARCH}"; then
-        rm -f "$TMP_WINGS"
-        error "Failed to download Wings"
-        systemctl start pelican-wings 2>/dev/null || true
-        exit 1
-    fi
-    chmod u+x "$TMP_WINGS"
-    chown "$SERVICE_USER:$SERVICE_USER" "$TMP_WINGS"
-    mv "$TMP_WINGS" /usr/local/bin/wings
-    
-    info "Starting Wings service..."
-    systemctl start pelican-wings || {
-        error "Failed to start Wings service"
-        exit 1
-    }
-    
-    success "Wings updated successfully!"
-}
-
-update_both() {
-    info "Updating Pelican Panel and Wings..."
-    
-    if [ ! -d "$PANEL_DIR" ] || [ ! -f "$PANEL_DIR/.env" ]; then
-        error "Panel is not installed. Please install Panel first."
-        exit 1
-    fi
-    
-    update_panel
-    
-    if [ -f "/usr/local/bin/wings" ]; then
-        update_wings
-    else
-        info "Wings not installed, skipping Wings update"
-    fi
-    
-    success "Panel and Wings updated successfully!"
-}
-
 show_menu() {
     echo ""
     info "Pelican Installation Menu"
@@ -2127,13 +2064,10 @@ show_menu() {
     echo "1. Install Panel only"
     echo "2. Install Wings only"
     echo "3. Install Panel + Wings"
-    echo "4. Update Panel"
-    echo "5. Update Wings"
-    echo "6. Update Panel + Wings"
-    echo "7. Uninstall"
-    echo "8. Exit"
+    echo "4. Uninstall"
+    echo "5. Exit"
     echo ""
-    echo -n "Select option [1-8]: "
+    echo -n "Select option [1-5]: "
     read MENU_CHOICE
     
     case "$MENU_CHOICE" in
@@ -2152,28 +2086,10 @@ show_menu() {
         4)
             check_root
             detect_os
-            update_panel
-            exit 0
-            ;;
-        5)
-            check_root
-            detect_os
-            update_wings
-            exit 0
-            ;;
-        6)
-            check_root
-            detect_os
-            update_both
-            exit 0
-            ;;
-        7)
-            check_root
-            detect_os
             uninstall_panel
             exit 0
             ;;
-        8)
+        5)
             info "Exiting..."
             exit 0
             ;;
@@ -2330,12 +2246,6 @@ main() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [ "$1" = "uninstall" ]; then
         main uninstall
-    elif [ "$1" = "update" ] || [ "$1" = "update-panel" ]; then
-        main update
-    elif [ "$1" = "update-wings" ]; then
-        main update-wings
-    elif [ "$1" = "update-both" ]; then
-        main update-both
     elif [ "$1" = "panel" ]; then
         main panel
     elif [ "$1" = "wings" ]; then
