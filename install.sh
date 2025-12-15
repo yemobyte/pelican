@@ -733,8 +733,10 @@ setup_database() {
         mysql -u root -proot -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || true
     }
     
-    mysql -u root -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
-        mysql -u root -proot -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
+    DB_PASS_ESCAPED=$(printf '%s' "$DB_PASS" | sed "s/'/''/g")
+    
+    mysql -u root -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS_ESCAPED';" 2>/dev/null || {
+        mysql -u root -proot -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS_ESCAPED';" 2>/dev/null || {
             error "Could not create database user. Please check MariaDB installation and root password."
             exit 1
         }
@@ -752,10 +754,41 @@ setup_database() {
     }
     
     info "Verifying database connection..."
+    sleep 2
     if mysql -u "$DB_USER" -p"$DB_PASS" -e "USE \`$DB_NAME\`; SELECT 1;" 2>/dev/null; then
         success "Database connection verified"
     else
-        warning "Could not verify database connection, but continuing..."
+        error "Could not verify database connection!"
+        error "User: $DB_USER, Database: $DB_NAME"
+        error "Please check if password is correct. Trying to recreate user..."
+        
+        mysql -u root -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || {
+            mysql -u root -proot -e "DROP USER IF EXISTS '$DB_USER'@'localhost';" 2>/dev/null || true
+        }
+        
+        mysql -u root -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
+            mysql -u root -proot -e "CREATE USER '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';" 2>/dev/null || {
+                error "Failed to recreate user"
+                exit 1
+            }
+        }
+        
+        mysql -u root -e "GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'localhost';" 2>/dev/null || {
+            mysql -u root -proot -e "GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'localhost';" 2>/dev/null || true
+        }
+        
+        mysql -u root -e "FLUSH PRIVILEGES;" 2>/dev/null || {
+            mysql -u root -proot -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+        }
+        
+        sleep 1
+        if mysql -u "$DB_USER" -p"$DB_PASS" -e "USE \`$DB_NAME\`; SELECT 1;" 2>/dev/null; then
+            success "Database connection verified after recreation"
+        else
+            error "Still cannot connect. Password may contain special characters."
+            error "Please check .env file manually and ensure DB_PASSWORD is correct."
+            exit 1
+        fi
     fi
     
     success "Database '$DB_NAME' and user '$DB_USER' created"
@@ -911,11 +944,18 @@ setup_panel_environment() {
         sudo -u "$SERVICE_USER" sed -i "s|DB_USERNAME=.*|DB_USERNAME=$DB_USER|g" .env
     fi
     
-    DB_PASS_ESCAPED=$(echo "$DB_PASS" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    DB_PASS_ENV=$(printf '%s' "$DB_PASS" | sed 's/"/\\"/g')
     if ! grep -q "DB_PASSWORD" .env; then
-        echo "DB_PASSWORD=\"$DB_PASS\"" >> .env
+        echo "DB_PASSWORD=\"$DB_PASS_ENV\"" >> .env
     else
-        sudo -u "$SERVICE_USER" sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=\"$DB_PASS\"|g" .env
+        sudo -u "$SERVICE_USER" sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=\"$DB_PASS_ENV\"|g" .env
+    fi
+    
+    info "Verifying .env file..."
+    if grep -q "DB_PASSWORD=\"$DB_PASS_ENV\"" .env || grep -q "DB_PASSWORD=$DB_PASS" .env; then
+        success ".env file configured correctly"
+    else
+        warning ".env file may not have correct password, but continuing..."
     fi
     
     sudo -u "$SERVICE_USER" php artisan config:clear
