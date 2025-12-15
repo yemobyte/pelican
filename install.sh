@@ -2012,10 +2012,18 @@ update_panel() {
         error "Failed to install PHP dependencies"
         exit 1
     }
+    info "Clearing caches..."
+    sudo -u "$OWNER" php artisan config:clear
+    sudo -u "$OWNER" php artisan cache:clear
+    sudo -u "$OWNER" php artisan route:clear
+    sudo -u "$OWNER" php artisan view:clear
     
     info "Optimizing..."
     sudo -u "$OWNER" php artisan optimize:clear
     sudo -u "$OWNER" php artisan filament:optimize 2>/dev/null || true
+    sudo -u "$OWNER" php artisan config:cache
+    sudo -u "$OWNER" php artisan route:cache
+    sudo -u "$OWNER" php artisan view:cache
     
     info "Creating storage symlinks..."
     sudo -u "$OWNER" php artisan storage:link 2>/dev/null || true
