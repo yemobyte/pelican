@@ -1448,15 +1448,19 @@ install_wings() {
 Description=Pelican Wings Daemon
 After=docker.service
 Requires=docker.service
+PartOf=docker.service
 
 [Service]
 Type=simple
-User=$SERVICE_USER
-Group=$SERVICE_USER
+User=root
 WorkingDirectory=/etc/pelican
+LimitNOFILE=4096
+PIDFile=/var/run/wings/daemon.pid
 ExecStart=/usr/local/bin/wings
-Restart=always
-RestartSec=10
+Restart=on-failure
+StartLimitInterval=180
+StartLimitBurst=30
+RestartSec=5s
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=pelican-wings
@@ -1468,6 +1472,14 @@ EOF
     systemctl daemon-reload
     
     success "Wings service created"
+    
+    echo ""
+    echo -n "Paste the Auto Deploy command from Panel (leave empty to skip): "
+    read AUTO_DEPLOY_CMD
+    if [ -n "$AUTO_DEPLOY_CMD" ]; then
+        info "Running auto-deploy command..."
+        bash -c "$AUTO_DEPLOY_CMD" || warning "Auto-deploy command failed. Please configure manually."
+    fi
     
     if [ -f "$PANEL_DIR/.env" ] && [ -f "$PANEL_DIR/artisan" ]; then
         info "Attempting to get Wings configuration from Panel..."
