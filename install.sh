@@ -1911,8 +1911,23 @@ update_panel() {
     
     check_root
     
-    OWNER="$SERVICE_USER"
-    GROUP="$SERVICE_USER"
+OWNER="$SERVICE_USER"
+GROUP="$SERVICE_USER"
+PANEL_DIRS="
+$PANEL_DIR/storage
+$PANEL_DIR/storage/app
+$PANEL_DIR/storage/app/public
+$PANEL_DIR/storage/logs
+$PANEL_DIR/storage/framework
+$PANEL_DIR/storage/framework/cache
+$PANEL_DIR/storage/framework/cache/data
+$PANEL_DIR/storage/framework/sessions
+$PANEL_DIR/storage/framework/views
+$PANEL_DIR/storage/framework/testing
+$PANEL_DIR/bootstrap/cache
+$PANEL_DIR/public/js/filament
+$PANEL_DIR/public/css/filament
+"
     
     DB_CONNECTION=$(grep "^DB_CONNECTION=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d "\"' " || echo "mysql")
     
@@ -1990,15 +2005,9 @@ update_panel() {
     
     info "Ensuring writable storage/cache/public directories..."
     sudo -u "$OWNER" rm -rf "$PANEL_DIR/public/js/filament" "$PANEL_DIR/public/css/filament" 2>/dev/null || true
-    sudo -u "$OWNER" mkdir -p \
-        "$PANEL_DIR/public/js/filament" \
-        "$PANEL_DIR/public/css/filament" \
-        "$PANEL_DIR/storage/app/public" \
-        "$PANEL_DIR/storage/logs" \
-        "$PANEL_DIR/storage/framework/cache" \
-        "$PANEL_DIR/storage/framework/sessions" \
-        "$PANEL_DIR/storage/framework/views" \
-        "$PANEL_DIR/bootstrap/cache"
+    for d in $PANEL_DIRS; do
+        sudo -u "$OWNER" mkdir -p "$d" 2>/dev/null || true
+    done
     TODAY_LOG="$PANEL_DIR/storage/logs/laravel-$(date +%F).log"
     sudo -u "$OWNER" touch "$TODAY_LOG" 2>/dev/null || true
     chown -R "$OWNER:$GROUP" "$PANEL_DIR/public" "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" "$PANEL_DIR/vendor" 2>/dev/null || true
@@ -2006,7 +2015,6 @@ update_panel() {
     find "$PANEL_DIR/public" -type f -exec chmod 664 {} \; 2>/dev/null || true
     chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
     find "$PANEL_DIR/storage/logs" -type f -name "*.log" -exec chmod 664 {} \; 2>/dev/null || true
-    sudo -u "$OWNER" php -r "file_exists('$PANEL_DIR/bootstrap/cache') || mkdir('$PANEL_DIR/bootstrap/cache', 0775, true);"
     
     info "Installing PHP dependencies..."
     COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interaction || {
@@ -2041,6 +2049,7 @@ update_panel() {
     chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
     find "$PANEL_DIR/storage/logs" -type f -name "*.log" -exec chmod 664 {} \; 2>/dev/null || true
     chown -R "$OWNER:$GROUP" "$PANEL_DIR/vendor" 2>/dev/null || true
+    sudo -u "$OWNER" touch "$PANEL_DIR/storage/logs/laravel-$(date +%F).log" 2>/dev/null || true
     
     info "Restarting queue worker..."
     sudo -u "$OWNER" php artisan queue:restart 2>/dev/null || true
