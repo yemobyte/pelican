@@ -2184,9 +2184,6 @@ install_wings_only() {
         exit 1
     fi
     
-    echo -n "Wings API token (leave empty to configure later): "
-    read WINGS_TOKEN
-    
     install_docker
     install_wings
     setup_firewall
@@ -2196,10 +2193,7 @@ install_wings_only() {
     info "1. Login to Panel: $(grep '^APP_URL=' "$PANEL_DIR/.env" | cut -d'=' -f2)"
     info "2. Go to Admin -> Nodes -> Configuration"
     info "3. Copy the configuration and save to /etc/pelican/config.yml"
-    if [ -n "$WINGS_TOKEN" ]; then
-        info "4. Add API token to /etc/pelican/config.yml"
-    fi
-    info "5. Start Wings: systemctl enable --now pelican-wings"
+    info "4. Start Wings: systemctl enable --now pelican-wings"
 }
 
 install_both() {
