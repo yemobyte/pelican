@@ -1988,6 +1988,18 @@ update_panel() {
     
     cd "$PANEL_DIR"
     
+    info "Ensuring writable storage and cache directories..."
+    mkdir -p "$PANEL_DIR/storage/app/public" \
+             "$PANEL_DIR/storage/logs" \
+             "$PANEL_DIR/storage/framework/cache" \
+             "$PANEL_DIR/storage/framework/sessions" \
+             "$PANEL_DIR/storage/framework/views" \
+             "$PANEL_DIR/bootstrap/cache"
+    chown -R "$OWNER:$GROUP" "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" "$PANEL_DIR"
+    chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
+    chmod 664 "$PANEL_DIR/storage/logs"/*.log 2>/dev/null || true
+    chmod 664 "$PANEL_DIR/storage/logs"/*/*.log 2>/dev/null || true
+    
     info "Installing PHP dependencies..."
     COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interaction || {
         error "Failed to install PHP dependencies"
