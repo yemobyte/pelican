@@ -1760,6 +1760,163 @@ uninstall_panel() {
     info "You can remove them manually if needed"
 }
 
+update_panel() {
+    info "Updating Pelican Panel..."
+    
+    if [ ! -d "$PANEL_DIR" ] || [ ! -f "$PANEL_DIR/.env" ]; then
+        error "Panel is not installed. Please install Panel first."
+        exit 1
+    fi
+    
+    check_root
+    
+    cd "$PANEL_DIR"
+    
+    info "Backing up current installation..."
+    BACKUP_DIR="${PANEL_DIR}.backup.$(date +%Y%m%d_%H%M%S)"
+    cp -r "$PANEL_DIR" "$BACKUP_DIR" 2>/dev/null || {
+        error "Failed to create backup"
+        exit 1
+    }
+    
+    info "Pulling latest changes..."
+    if [ -d "$PANEL_DIR/.git" ]; then
+        sudo -u "$SERVICE_USER" git fetch --all
+        sudo -u "$SERVICE_USER" git pull origin main || sudo -u "$SERVICE_USER" git pull origin master
+    else
+        TEMP_DIR=$(mktemp -d)
+        cd "$TEMP_DIR"
+        curl -L -o panel.tar.gz https://github.com/pelican-dev/panel/releases/latest/download/panel.tar.gz || {
+            error "Failed to download latest Panel"
+            rm -rf "$TEMP_DIR"
+            exit 1
+        }
+        tar -xzf panel.tar.gz
+        
+        if [ -d "panel" ]; then
+            cp -r panel/* "$PANEL_DIR/" 2>/dev/null || true
+            cp -r panel/.* "$PANEL_DIR/" 2>/dev/null || true
+        elif [ -f "composer.json" ]; then
+            cp -r * "$PANEL_DIR/" 2>/dev/null || true
+            cp -r .* "$PANEL_DIR/" 2>/dev/null || true
+        else
+            EXTRACTED_DIR=$(find . -maxdepth 1 -type d ! -name . | head -1)
+            if [ -n "$EXTRACTED_DIR" ] && [ -f "$EXTRACTED_DIR/composer.json" ]; then
+                cp -r "$EXTRACTED_DIR"/* "$PANEL_DIR/" 2>/dev/null || true
+                cp -r "$EXTRACTED_DIR"/.* "$PANEL_DIR/" 2>/dev/null || true
+            fi
+        fi
+        rm -rf "$TEMP_DIR"
+        cd "$PANEL_DIR"
+    fi
+    
+    info "Updating PHP dependencies..."
+    COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$SERVICE_USER" composer install --no-dev --optimize-autoloader --no-interaction || {
+        error "Failed to update PHP dependencies"
+        info "Restoring from backup..."
+        rm -rf "$PANEL_DIR"
+        mv "$BACKUP_DIR" "$PANEL_DIR"
+        exit 1
+    }
+    
+    info "Clearing caches..."
+    sudo -u "$SERVICE_USER" php artisan config:clear
+    sudo -u "$SERVICE_USER" php artisan cache:clear
+    sudo -u "$SERVICE_USER" php artisan view:clear
+    
+    info "Running migrations..."
+    sudo -u "$SERVICE_USER" php artisan migrate --force || {
+        warning "Migrations failed, but continuing..."
+    }
+    
+    if [ -f "$PANEL_DIR/package.json" ]; then
+        info "Updating frontend assets..."
+        if [ -f "$PANEL_DIR/package-lock.json" ]; then
+            sudo -u "$SERVICE_USER" npm ci --legacy-peer-deps || {
+                sudo -u "$SERVICE_USER" npm install --legacy-peer-deps
+            }
+        else
+            sudo -u "$SERVICE_USER" npm install --legacy-peer-deps
+        fi
+        sudo -u "$SERVICE_USER" npm run build || {
+            warning "Failed to build assets"
+        }
+    fi
+    
+    info "Optimizing application..."
+    sudo -u "$SERVICE_USER" php artisan config:cache
+    sudo -u "$SERVICE_USER" php artisan route:cache
+    sudo -u "$SERVICE_USER" php artisan view:cache
+    
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR"
+    
+    info "Restarting Panel service..."
+    systemctl restart pelican-panel || {
+        warning "Failed to restart Panel service"
+    }
+    
+    success "Panel updated successfully!"
+    info "Backup saved to: $BACKUP_DIR"
+}
+
+update_wings() {
+    info "Updating Pelican Wings..."
+    
+    if [ ! -f "/usr/local/bin/wings" ]; then
+        error "Wings is not installed. Please install Wings first."
+        exit 1
+    fi
+    
+    check_root
+    
+    info "Stopping Wings service..."
+    systemctl stop pelican-wings 2>/dev/null || true
+    
+    info "Backing up current Wings binary..."
+    cp /usr/local/bin/wings /usr/local/bin/wings.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+    
+    info "Downloading latest Wings..."
+    curl -L -o /usr/local/bin/wings https://github.com/pelican-dev/wings/releases/latest/download/wings_linux_amd64 || {
+        error "Failed to download Wings"
+        if [ -f /usr/local/bin/wings.backup.* ]; then
+            info "Restoring from backup..."
+            cp /usr/local/bin/wings.backup.* /usr/local/bin/wings
+        fi
+        systemctl start pelican-wings 2>/dev/null || true
+        exit 1
+    }
+    
+    chmod +x /usr/local/bin/wings
+    chown "$SERVICE_USER:$SERVICE_USER" /usr/local/bin/wings
+    
+    info "Starting Wings service..."
+    systemctl start pelican-wings || {
+        error "Failed to start Wings service"
+        exit 1
+    }
+    
+    success "Wings updated successfully!"
+}
+
+update_both() {
+    info "Updating Pelican Panel and Wings..."
+    
+    if [ ! -d "$PANEL_DIR" ] || [ ! -f "$PANEL_DIR/.env" ]; then
+        error "Panel is not installed. Please install Panel first."
+        exit 1
+    fi
+    
+    update_panel
+    
+    if [ -f "/usr/local/bin/wings" ]; then
+        update_wings
+    else
+        info "Wings not installed, skipping Wings update"
+    fi
+    
+    success "Panel and Wings updated successfully!"
+}
+
 show_menu() {
     echo ""
     info "Pelican Installation Menu"
@@ -1767,10 +1924,13 @@ show_menu() {
     echo "1. Install Panel only"
     echo "2. Install Wings only"
     echo "3. Install Panel + Wings"
-    echo "4. Uninstall"
-    echo "5. Exit"
+    echo "4. Update Panel"
+    echo "5. Update Wings"
+    echo "6. Update Panel + Wings"
+    echo "7. Uninstall"
+    echo "8. Exit"
     echo ""
-    echo -n "Select option [1-5]: "
+    echo -n "Select option [1-8]: "
     read MENU_CHOICE
     
     case "$MENU_CHOICE" in
@@ -1789,10 +1949,28 @@ show_menu() {
         4)
             check_root
             detect_os
-            uninstall_panel
+            update_panel
             exit 0
             ;;
         5)
+            check_root
+            detect_os
+            update_wings
+            exit 0
+            ;;
+        6)
+            check_root
+            detect_os
+            update_both
+            exit 0
+            ;;
+        7)
+            check_root
+            detect_os
+            uninstall_panel
+            exit 0
+            ;;
+        8)
             info "Exiting..."
             exit 0
             ;;
@@ -1905,6 +2083,27 @@ main() {
         exit 0
     fi
     
+    if [ "$1" = "update" ] || [ "$1" = "update-panel" ]; then
+        check_root
+        detect_os
+        update_panel
+        exit 0
+    fi
+    
+    if [ "$1" = "update-wings" ]; then
+        check_root
+        detect_os
+        update_wings
+        exit 0
+    fi
+    
+    if [ "$1" = "update-both" ]; then
+        check_root
+        detect_os
+        update_both
+        exit 0
+    fi
+    
     if [ "$1" = "panel" ]; then
         install_panel_only
         exit 0
@@ -1934,6 +2133,12 @@ main() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [ "$1" = "uninstall" ]; then
         main uninstall
+    elif [ "$1" = "update" ] || [ "$1" = "update-panel" ]; then
+        main update
+    elif [ "$1" = "update-wings" ]; then
+        main update-wings
+    elif [ "$1" = "update-both" ]; then
+        main update-both
     elif [ "$1" = "panel" ]; then
         main panel
     elif [ "$1" = "wings" ]; then

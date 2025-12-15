@@ -42,6 +42,36 @@ Automated installation script for Pelican Panel and Wings following official Pel
 bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh)
 ```
 
+## Update
+
+To update Pelican Panel and/or Wings:
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh)
+```
+
+Then select:
+- Option 4: Update Panel
+- Option 5: Update Wings
+- Option 6: Update Panel + Wings
+
+Or use direct commands:
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh) update
+bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh) update-wings
+bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh) update-both
+```
+
+The updater will:
+- Create backup of current installation
+- Download latest Panel/Wings release
+- Update PHP dependencies (Panel)
+- Run database migrations (Panel)
+- Rebuild frontend assets (Panel)
+- Clear and optimize caches
+- Restart services
+
 ## Uninstall
 
 To uninstall Pelican Panel and Wings:
