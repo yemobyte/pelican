@@ -1911,8 +1911,8 @@ update_panel() {
     
     check_root
     
-    OWNER=$(stat -c '%U' "$PANEL_DIR" 2>/dev/null || echo "$SERVICE_USER")
-    GROUP=$(stat -c '%G' "$PANEL_DIR" 2>/dev/null || echo "$SERVICE_USER")
+    OWNER="$SERVICE_USER"
+    GROUP="$SERVICE_USER"
     
     DB_CONNECTION=$(grep "^DB_CONNECTION=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d "\"' " || echo "mysql")
     
@@ -2006,6 +2006,7 @@ update_panel() {
     find "$PANEL_DIR/public" -type f -exec chmod 664 {} \; 2>/dev/null || true
     chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
     find "$PANEL_DIR/storage/logs" -type f -name "*.log" -exec chmod 664 {} \; 2>/dev/null || true
+    sudo -u "$OWNER" php -r "file_exists('$PANEL_DIR/bootstrap/cache') || mkdir('$PANEL_DIR/bootstrap/cache', 0775, true);"
     
     info "Installing PHP dependencies..."
     COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interaction || {
@@ -2034,7 +2035,7 @@ update_panel() {
     }
     
     info "Setting permissions..."
-    chown -R "$OWNER:$GROUP" "$PANEL_DIR"
+    chown -R "$OWNER:$GROUP" "$PANEL_DIR" 2>/dev/null || true
     find "$PANEL_DIR/public" -type d -exec chmod 775 {} \; 2>/dev/null || true
     find "$PANEL_DIR/public" -type f -exec chmod 664 {} \; 2>/dev/null || true
     chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
@@ -2048,6 +2049,9 @@ update_panel() {
     PHP_FPM_SERVICE=$(systemctl list-units --type=service --state=running | awk '/php.*fpm/ {print $1; exit}')
     if [ -n "$PHP_FPM_SERVICE" ]; then
         systemctl restart "$PHP_FPM_SERVICE" 2>/dev/null || true
+    fi
+    if systemctl is-enabled --quiet nginx 2>/dev/null; then
+        systemctl restart nginx 2>/dev/null || true
     fi
     
     success "Panel updated successfully!"
