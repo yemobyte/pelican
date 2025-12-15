@@ -222,9 +222,9 @@ install_php() {
                 fi
             fi
             apt-get update
-                
-                if [ "$PHP_NEEDS_INSTALL" = true ]; then
-            if apt-cache show php8.4-fpm &>/dev/null; then
+            
+            if [ "$PHP_NEEDS_INSTALL" = true ]; then
+                if apt-cache show php8.4-fpm &>/dev/null; then
                 apt-get install -y php8.4 php8.4-cli php8.4-fpm php8.4-common php8.4-mysql php8.4-zip php8.4-gd php8.4-mbstring php8.4-curl php8.4-xml php8.4-bcmath php8.4-intl php8.4-sqlite3 || {
                     error "Failed to install PHP 8.4, trying PHP 8.3..."
                     apt-get install -y php8.3 php8.3-cli php8.3-fpm php8.3-common php8.3-mysql php8.3-zip php8.3-gd php8.3-mbstring php8.3-curl php8.3-xml php8.3-bcmath php8.3-intl php8.3-sqlite3
@@ -258,8 +258,8 @@ install_php() {
                     exit 1
                 }
                 PHP_VERSION="8.2"
-            fi
-                elif [ "$PHP_FPM_NEEDS_INSTALL" = true ]; then
+                fi
+            elif [ "$PHP_FPM_NEEDS_INSTALL" = true ]; then
                     if apt-cache show php${PHP_VERSION}-fpm &>/dev/null; then
                         apt-get install -y php${PHP_VERSION}-fpm || {
                             error "Failed to install PHP${PHP_VERSION}-FPM"
