@@ -651,8 +651,9 @@ setup_database() {
         sleep 3
     fi
     
-    DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$DB_NAME';" 2>/dev/null | grep -c "$DB_NAME" || echo "0")
-    if [ "$DB_EXISTS" -gt 0 ]; then
+    DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$DB_NAME';" 2>/dev/null | grep -c "$DB_NAME" 2>/dev/null | tr -d '\n' || echo "0")
+    DB_EXISTS=${DB_EXISTS:-0}
+    if [ "$DB_EXISTS" -gt 0 ] 2>/dev/null; then
         warning "Database '$DB_NAME' already exists!"
         echo ""
         echo "The database '$DB_NAME' is already in use. Please choose a different database name."
@@ -663,8 +664,9 @@ setup_database() {
                 error "Database name cannot be empty!"
                 continue
             fi
-            NEW_DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$NEW_DB_NAME';" 2>/dev/null | grep -c "$NEW_DB_NAME" || echo "0")
-            if [ "$NEW_DB_EXISTS" -gt 0 ]; then
+            NEW_DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$NEW_DB_NAME';" 2>/dev/null | grep -c "$NEW_DB_NAME" 2>/dev/null | tr -d '\n' || echo "0")
+            NEW_DB_EXISTS=${NEW_DB_EXISTS:-0}
+            if [ "$NEW_DB_EXISTS" -gt 0 ] 2>/dev/null; then
                 warning "Database '$NEW_DB_NAME' also exists! Please choose another name."
                 continue
             fi
@@ -674,8 +676,9 @@ setup_database() {
         done
     fi
     
-    USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$DB_USER" || echo "0")
-    if [ "$USER_EXISTS" -gt 0 ]; then
+    USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$DB_USER" 2>/dev/null | tr -d '\n' || echo "0")
+    USER_EXISTS=${USER_EXISTS:-0}
+    if [ "$USER_EXISTS" -gt 0 ] 2>/dev/null; then
         warning "Database user '$DB_USER' already exists!"
         echo ""
         echo "The database user '$DB_USER' is already in use. Please choose a different username."
@@ -686,8 +689,9 @@ setup_database() {
                 error "Database username cannot be empty!"
                 continue
             fi
-            NEW_USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$NEW_DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$NEW_DB_USER" || echo "0")
-            if [ "$NEW_USER_EXISTS" -gt 0 ]; then
+            NEW_USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$NEW_DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$NEW_DB_USER" 2>/dev/null | tr -d '\n' || echo "0")
+            NEW_USER_EXISTS=${NEW_USER_EXISTS:-0}
+            if [ "$NEW_USER_EXISTS" -gt 0 ] 2>/dev/null; then
                 warning "Database user '$NEW_DB_USER' also exists! Please choose another username."
                 continue
             fi
