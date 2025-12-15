@@ -150,11 +150,36 @@ detect_os() {
     esac
 }
 
+wait_for_apt_lock() {
+    local max_wait=300
+    local wait_time=0
+    local check_interval=5
+    
+    while [ $wait_time -lt $max_wait ]; do
+        if ! lsof /var/lib/dpkg/lock-frontend &>/dev/null && ! lsof /var/lib/dpkg/lock &>/dev/null && ! fuser /var/lib/apt/lists/lock &>/dev/null && ! fuser /var/cache/apt/archives/lock &>/dev/null; then
+            return 0
+        fi
+        
+        if [ $wait_time -eq 0 ]; then
+            info "Waiting for apt/dpkg lock to be released..."
+            info "If another package manager is running, please wait for it to finish."
+        fi
+        
+        sleep $check_interval
+        wait_time=$((wait_time + check_interval))
+    done
+    
+    error "Timeout waiting for apt/dpkg lock. Another process may be using the package manager."
+    error "Please wait for other package operations to complete and try again."
+    exit 1
+}
+
 install_system_dependencies() {
     info "Installing system dependencies for $OS_TYPE $OS_VERSION..."
     
     case "$PKG_MANAGER" in
         apt)
+            wait_for_apt_lock
             apt-get update
             apt-get install -y curl wget unzip git tar software-properties-common apt-transport-https ca-certificates gnupg lsb-release build-essential
             ;;
@@ -207,6 +232,7 @@ install_php() {
     if [ "$PHP_NEEDS_INSTALL" = true ] || [ "$PHP_FPM_NEEDS_INSTALL" = true ]; then
     case "$PKG_MANAGER" in
         apt)
+            wait_for_apt_lock
             if [ "$OS_TYPE" = "ubuntu" ]; then
                 if ! grep -q "ondrej/php" /etc/apt/sources.list.d/*.list 2>/dev/null; then
                     add-apt-repository -y ppa:ondrej/php
@@ -214,6 +240,7 @@ install_php() {
             elif [ "$OS_TYPE" = "debian" ]; then
                 if ! grep -q "packages.sury.org" /etc/apt/sources.list.d/*.list 2>/dev/null && ! grep -q "packages.sury.org" /etc/apt/sources.list 2>/dev/null; then
                     info "Adding Sury PHP repository for Debian..."
+                    wait_for_apt_lock
                     apt-get install -y ca-certificates apt-transport-https lsb-release gnupg2
                     wget -qO - https://packages.sury.org/php/apt.gpg | apt-key add - 2>/dev/null || {
                         wget -qO /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg
@@ -221,6 +248,7 @@ install_php() {
                     echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury-php.list
                 fi
             fi
+            wait_for_apt_lock
             apt-get update
             
             if [ "$PHP_NEEDS_INSTALL" = true ]; then
@@ -672,10 +700,7 @@ setup_database() {
         done
     fi
     
-    USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$DB_USER" 2>/dev/null | head -1 | tr -d '\n\r ' || echo "0")
-    USER_EXISTS=$(echo "$USER_EXISTS" | tr -d '\n\r ')
-    USER_EXISTS=${USER_EXISTS:-0}
-    if [ "$USER_EXISTS" -gt 0 ] 2>/dev/null; then
+    if mysql -u root -e "SELECT User FROM mysql.user WHERE User='$DB_USER' AND Host='localhost';" 2>/dev/null | grep -q "^$DB_USER$" 2>/dev/null; then
         warning "Database user '$DB_USER' already exists!"
         echo ""
         echo "The database user '$DB_USER' is already in use. Please choose a different username."
@@ -686,10 +711,7 @@ setup_database() {
                 error "Database username cannot be empty!"
                 continue
             fi
-            NEW_USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$NEW_DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$NEW_DB_USER" 2>/dev/null | head -1 | tr -d '\n\r ' || echo "0")
-            NEW_USER_EXISTS=$(echo "$NEW_USER_EXISTS" | tr -d '\n\r ')
-            NEW_USER_EXISTS=${NEW_USER_EXISTS:-0}
-            if [ "$NEW_USER_EXISTS" -gt 0 ] 2>/dev/null; then
+            if mysql -u root -e "SELECT User FROM mysql.user WHERE User='$NEW_DB_USER' AND Host='localhost';" 2>/dev/null | grep -q "^$NEW_DB_USER$" 2>/dev/null; then
                 warning "Database user '$NEW_DB_USER' also exists! Please choose another username."
                 continue
             fi
