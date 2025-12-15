@@ -168,35 +168,83 @@ install_php() {
     fi
     
     if [ "$PHP_NEEDS_INSTALL" = true ] || [ "$PHP_FPM_NEEDS_INSTALL" = true ]; then
-        case "$PKG_MANAGER" in
-            apt)
+    case "$PKG_MANAGER" in
+        apt)
+            if [ "$OS_TYPE" = "ubuntu" ]; then
                 if ! grep -q "ondrej/php" /etc/apt/sources.list.d/*.list 2>/dev/null; then
                     add-apt-repository -y ppa:ondrej/php
                 fi
-                apt-get update
+            elif [ "$OS_TYPE" = "debian" ]; then
+                if ! grep -q "packages.sury.org" /etc/apt/sources.list.d/*.list 2>/dev/null && ! grep -q "packages.sury.org" /etc/apt/sources.list 2>/dev/null; then
+                    info "Adding Sury PHP repository for Debian..."
+                    apt-get install -y ca-certificates apt-transport-https lsb-release gnupg2
+                    wget -qO - https://packages.sury.org/php/apt.gpg | apt-key add - 2>/dev/null || {
+                        wget -qO /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg
+                    }
+                    echo "deb https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury-php.list
+                fi
+            fi
+            apt-get update
                 
                 if [ "$PHP_NEEDS_INSTALL" = true ]; then
-                    if apt-cache show php8.4-fpm &>/dev/null; then
-                        apt-get install -y php8.4 php8.4-cli php8.4-fpm php8.4-common php8.4-mysql php8.4-zip php8.4-gd php8.4-mbstring php8.4-curl php8.4-xml php8.4-bcmath php8.4-intl php8.4-sqlite3
-                        PHP_VERSION="8.4"
-                    elif apt-cache show php8.3-fpm &>/dev/null; then
-                        apt-get install -y php8.3 php8.3-cli php8.3-fpm php8.3-common php8.3-mysql php8.3-zip php8.3-gd php8.3-mbstring php8.3-curl php8.3-xml php8.3-bcmath php8.3-intl php8.3-sqlite3
-                        PHP_VERSION="8.3"
-                    else
-                        apt-get install -y php8.2 php8.2-cli php8.2-fpm php8.2-common php8.2-mysql php8.2-zip php8.2-gd php8.2-mbstring php8.2-curl php8.2-xml php8.2-bcmath php8.2-intl php8.2-sqlite3
-                        PHP_VERSION="8.2"
-                    fi
+            if apt-cache show php8.4-fpm &>/dev/null; then
+                apt-get install -y php8.4 php8.4-cli php8.4-fpm php8.4-common php8.4-mysql php8.4-zip php8.4-gd php8.4-mbstring php8.4-curl php8.4-xml php8.4-bcmath php8.4-intl php8.4-sqlite3 || {
+                    error "Failed to install PHP 8.4, trying PHP 8.3..."
+                    apt-get install -y php8.3 php8.3-cli php8.3-fpm php8.3-common php8.3-mysql php8.3-zip php8.3-gd php8.3-mbstring php8.3-curl php8.3-xml php8.3-bcmath php8.3-intl php8.3-sqlite3
+                    PHP_VERSION="8.3"
+                } || {
+                    error "Failed to install PHP 8.3, trying PHP 8.2..."
+                    apt-get install -y php8.2 php8.2-cli php8.2-fpm php8.2-common php8.2-mysql php8.2-zip php8.2-gd php8.2-mbstring php8.2-curl php8.2-xml php8.2-bcmath php8.2-intl php8.2-sqlite3
+                    PHP_VERSION="8.2"
+                } || {
+                    error "Failed to install PHP. Please check repository configuration."
+                    exit 1
+                }
+                if [ -z "$PHP_VERSION" ]; then
+                    PHP_VERSION="8.4"
+                fi
+            elif apt-cache show php8.3-fpm &>/dev/null; then
+                apt-get install -y php8.3 php8.3-cli php8.3-fpm php8.3-common php8.3-mysql php8.3-zip php8.3-gd php8.3-mbstring php8.3-curl php8.3-xml php8.3-bcmath php8.3-intl php8.3-sqlite3 || {
+                    error "Failed to install PHP 8.3, trying PHP 8.2..."
+                    apt-get install -y php8.2 php8.2-cli php8.2-fpm php8.2-common php8.2-mysql php8.2-zip php8.2-gd php8.2-mbstring php8.2-curl php8.2-xml php8.2-bcmath php8.2-intl php8.2-sqlite3
+                    PHP_VERSION="8.2"
+                } || {
+                    error "Failed to install PHP. Please check repository configuration."
+                    exit 1
+                }
+                if [ -z "$PHP_VERSION" ]; then
+                    PHP_VERSION="8.3"
+                fi
+            else
+                apt-get install -y php8.2 php8.2-cli php8.2-fpm php8.2-common php8.2-mysql php8.2-zip php8.2-gd php8.2-mbstring php8.2-curl php8.2-xml php8.2-bcmath php8.2-intl php8.2-sqlite3 || {
+                    error "Failed to install PHP 8.2. Please check repository configuration."
+                    exit 1
+                }
+                PHP_VERSION="8.2"
+            fi
                 elif [ "$PHP_FPM_NEEDS_INSTALL" = true ]; then
                     if apt-cache show php${PHP_VERSION}-fpm &>/dev/null; then
-                        apt-get install -y php${PHP_VERSION}-fpm
+                        apt-get install -y php${PHP_VERSION}-fpm || {
+                            error "Failed to install PHP${PHP_VERSION}-FPM"
+                            exit 1
+                        }
                     elif apt-cache show php8.4-fpm &>/dev/null; then
-                        apt-get install -y php8.4-fpm
+                        apt-get install -y php8.4-fpm || {
+                            error "Failed to install PHP 8.4-FPM"
+                            exit 1
+                        }
                         PHP_VERSION="8.4"
                     elif apt-cache show php8.3-fpm &>/dev/null; then
-                        apt-get install -y php8.3-fpm
+                        apt-get install -y php8.3-fpm || {
+                            error "Failed to install PHP 8.3-FPM"
+                            exit 1
+                        }
                         PHP_VERSION="8.3"
                     else
-                        apt-get install -y php8.2-fpm
+                        apt-get install -y php8.2-fpm || {
+                            error "Failed to install PHP 8.2-FPM"
+                            exit 1
+                        }
                         PHP_VERSION="8.2"
                     fi
                 fi
