@@ -651,10 +651,7 @@ setup_database() {
         sleep 3
     fi
     
-    DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$DB_NAME';" 2>/dev/null | grep -c "$DB_NAME" 2>/dev/null | head -1 | tr -d '\n\r ' || echo "0")
-    DB_EXISTS=$(echo "$DB_EXISTS" | tr -d '\n\r ')
-    DB_EXISTS=${DB_EXISTS:-0}
-    if [ "$DB_EXISTS" -gt 0 ] 2>/dev/null; then
+    if mysql -u root -e "SHOW DATABASES LIKE '$DB_NAME';" 2>/dev/null | grep -q "^$DB_NAME$" 2>/dev/null; then
         warning "Database '$DB_NAME' already exists!"
         echo ""
         echo "The database '$DB_NAME' is already in use. Please choose a different database name."
@@ -665,10 +662,7 @@ setup_database() {
                 error "Database name cannot be empty!"
                 continue
             fi
-            NEW_DB_EXISTS=$(mysql -u root -e "SHOW DATABASES LIKE '$NEW_DB_NAME';" 2>/dev/null | grep -c "$NEW_DB_NAME" 2>/dev/null | head -1 | tr -d '\n\r ' || echo "0")
-            NEW_DB_EXISTS=$(echo "$NEW_DB_EXISTS" | tr -d '\n\r ')
-            NEW_DB_EXISTS=${NEW_DB_EXISTS:-0}
-            if [ "$NEW_DB_EXISTS" -gt 0 ] 2>/dev/null; then
+            if mysql -u root -e "SHOW DATABASES LIKE '$NEW_DB_NAME';" 2>/dev/null | grep -q "^$NEW_DB_NAME$" 2>/dev/null; then
                 warning "Database '$NEW_DB_NAME' also exists! Please choose another name."
                 continue
             fi
@@ -692,7 +686,8 @@ setup_database() {
                 error "Database username cannot be empty!"
                 continue
             fi
-            NEW_USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$NEW_DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$NEW_DB_USER" 2>/dev/null | tr -d '\n' || echo "0")
+            NEW_USER_EXISTS=$(mysql -u root -e "SELECT User FROM mysql.user WHERE User='$NEW_DB_USER' AND Host='localhost';" 2>/dev/null | grep -c "$NEW_DB_USER" 2>/dev/null | head -1 | tr -d '\n\r ' || echo "0")
+            NEW_USER_EXISTS=$(echo "$NEW_USER_EXISTS" | tr -d '\n\r ')
             NEW_USER_EXISTS=${NEW_USER_EXISTS:-0}
             if [ "$NEW_USER_EXISTS" -gt 0 ] 2>/dev/null; then
                 warning "Database user '$NEW_DB_USER' also exists! Please choose another username."
