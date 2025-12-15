@@ -2004,6 +2004,7 @@ update_panel() {
     chown -R "$OWNER:$GROUP" "$PANEL_DIR/public"
     find "$PANEL_DIR/public" -type d -exec chmod 775 {} \; 2>/dev/null || true
     find "$PANEL_DIR/public" -type f -exec chmod 664 {} \; 2>/dev/null || true
+    rm -rf "$PANEL_DIR/public/js/filament" "$PANEL_DIR/public/css/filament" 2>/dev/null || true
     
     info "Installing PHP dependencies..."
     COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interaction || {
