@@ -73,6 +73,7 @@ The installer will:
 - Builds frontend assets (if package.json exists)
 - Creates systemd service for queue worker
 - Configures Nginx web server
+- If domain resolves to this server, auto-issues SSL via certbot; if only IP, uses HTTP
 - Sets up cron jobs for scheduled tasks
 - Runs database migrations and seeding
 - Creates admin user automatically
@@ -82,7 +83,7 @@ The installer will:
 - Downloads latest Wings binary to `/usr/local/bin/wings`
 - Creates Wings configuration directory (`/etc/pelican`)
 - Creates systemd service for Wings daemon
-- Provides instructions for getting configuration from Panel
+- Shows manual steps to create node, copy config YAML (with API token), save to `/etc/pelican/config.yml`, set permissions, and start Wings
 
 ## Installation Process
 
@@ -107,6 +108,7 @@ After installation, you will see:
 - Panel URL
 - Admin credentials (email, username, password)
 - Database credentials
+- Wings manual configuration steps (if selected)
 
 ### Service Management
 
@@ -181,6 +183,25 @@ journalctl -u pelican-wings -f
 tail -f /var/log/nginx/error.log
 tail -f /var/log/nginx/access.log
 ```
+
+## Wings Manual Setup (after install)
+1. Login to Panel (`APP_URL` shown after install).
+2. Admin → API → Application API: create key with Nodes permissions; copy token.
+3. Admin → Nodes → Create New: fill Name, FQDN/IP, ports (2022/2022), resources.
+4. Node → Configuration tab: copy full YAML (ensure token present).
+5. Save to `/etc/pelican/config.yml` and set permissions:
+   ```bash
+   sudo nano /etc/pelican/config.yml
+   sudo chown pelican:pelican /etc/pelican/config.yml
+   sudo chmod 600 /etc/pelican/config.yml
+   ```
+6. Start Wings and check logs:
+   ```bash
+   sudo systemctl enable --now pelican-wings
+   sudo systemctl status pelican-wings
+   sudo journalctl -u pelican-wings -f
+   ```
+Node stays red until config.yml exists and Wings is running.
 
 ### Check Database Connection
 

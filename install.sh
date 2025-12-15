@@ -1344,10 +1344,24 @@ EOF
     fi
     
     if [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        info "IP address detected, skipping SSL setup"
+        info "IP address detected, using HTTP without SSL"
     else
         info "Domain detected: $DOMAIN"
-        info "You can setup SSL later with: certbot --nginx -d $DOMAIN"
+        DOMAIN_IP=$(getent ahostsv4 "$DOMAIN" | awk '{print $1; exit}' || true)
+        PUBLIC_IP=$(curl -4 -s https://api.ipify.org || hostname -I | awk '{print $1}')
+        if [ -n "$DOMAIN_IP" ] && [ -n "$PUBLIC_IP" ] && [ "$DOMAIN_IP" = "$PUBLIC_IP" ]; then
+            info "Domain resolves to this server ($PUBLIC_IP), attempting SSL issuance"
+            wait_for_apt_lock
+            apt-get install -y certbot python3-certbot-nginx
+            SSL_EMAIL="${ADMIN_EMAIL:-admin@pelican.local}"
+            if certbot --nginx --non-interactive --agree-tos -m "$SSL_EMAIL" -d "$DOMAIN" --redirect; then
+                success "SSL certificate issued for $DOMAIN"
+            else
+                warning "SSL issuance failed. You can retry: certbot --nginx -d $DOMAIN"
+            fi
+        else
+            warning "Domain does not resolve to this server (public IP: $PUBLIC_IP, domain IP: ${DOMAIN_IP:-unknown}). Skipping SSL."
+        fi
     fi
 }
 
@@ -1447,56 +1461,38 @@ EOF
     systemctl daemon-reload
     
     success "Wings service created"
-    
-    echo ""
-    echo -n "Paste the Auto Deploy command from Panel (leave empty to skip): "
-    read AUTO_DEPLOY_CMD
-    if [ -n "$AUTO_DEPLOY_CMD" ]; then
-        info "Running auto-deploy command..."
-        bash -c "$AUTO_DEPLOY_CMD" || warning "Auto-deploy command failed. Please configure manually."
-    fi
-    
     if [ -f "$PANEL_DIR/.env" ] && [ -f "$PANEL_DIR/artisan" ]; then
-        info "Attempting to get Wings configuration from Panel..."
-        
         PANEL_URL_FROM_ENV=$(grep "^APP_URL=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d '"' || echo "$PANEL_URL")
-        
-        info "To complete Wings setup:"
+        info "To configure Wings manually:"
         info "1. Login to Panel: $PANEL_URL_FROM_ENV"
-        info "2. Go to Admin -> Nodes"
-        info "3. Click 'Create New' to add a new node"
-        info "4. Fill in the node details:"
-        info "   - Name: Your server name"
-        info "   - Description: Optional description"
-        info "   - FQDN: Your server IP or domain (e.g., $(hostname -I | awk '{print $1}'))"
-        info "   - Communication Port: 2022"
-        info "   - SFTP Port: 2022"
-        info "   - Memory: Total server memory"
-        info "   - Disk: Total server disk space"
-        info "5. After creating the node, go to the node's 'Configuration' tab"
-        info "6. Copy the entire configuration YAML"
-        info "7. Save it to /etc/pelican/config.yml:"
+        info "2. Go to Admin -> API -> Application API"
+        info "   - Create an Application API key with permissions for Nodes"
+        info "   - Copy the API key (token)"
+        info "3. Go to Admin -> Nodes -> Create New"
+        info "   - Fill in node details (Name, FQDN, ports, resources)"
+        info "4. Open the node 'Configuration' tab"
+        info "   - Copy the full YAML configuration"
+        info "   - Ensure the token from step 2 is present"
+        info "5. Save YAML to /etc/pelican/config.yml"
         info "   sudo nano /etc/pelican/config.yml"
-        info "   (Paste the configuration and save)"
-        info "8. Set correct permissions:"
+        info "6. Set permissions:"
         info "   sudo chown pelican:pelican /etc/pelican/config.yml"
         info "   sudo chmod 600 /etc/pelican/config.yml"
-        info "9. Start Wings:"
+        info "7. Start Wings:"
         info "   sudo systemctl enable --now pelican-wings"
-        info "10. Check Wings status:"
-        info "    sudo systemctl status pelican-wings"
-        info "    sudo journalctl -u pelican-wings -f"
-        echo ""
-        warning "Wings will not start until config.yml is created!"
-        warning "Node will appear red in Panel until Wings is running with valid config.yml"
+        info "8. Check status and logs:"
+        info "   sudo systemctl status pelican-wings"
+        info "   sudo journalctl -u pelican-wings -f"
+        warning "Node stays red until config.yml is in place and Wings is running."
     else
-        info "To configure Wings:"
+        info "To configure Wings manually:"
         info "1. Login to Panel: $PANEL_URL"
-        info "2. Go to Admin -> Nodes -> Create New"
-        info "3. After creating node, go to Configuration tab"
-        info "4. Copy the configuration and save to /etc/pelican/config.yml"
+        info "2. Go to Admin -> API -> Application API, create key, copy token"
+        info "3. Go to Admin -> Nodes -> Create New, then Configuration tab"
+        info "4. Copy config YAML, include token, save to /etc/pelican/config.yml"
         info "5. Set permissions: chown pelican:pelican /etc/pelican/config.yml && chmod 600 /etc/pelican/config.yml"
         info "6. Start Wings: systemctl enable --now pelican-wings"
+        warning "Node stays red until config.yml is present and Wings is running."
     fi
 }
 
