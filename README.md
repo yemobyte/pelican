@@ -86,7 +86,7 @@ The installer will:
 - Installs PHP 8.4/8.3/8.2 with all required extensions:
   - `gd`, `mysql`, `mbstring`, `bcmath`, `xml`, `curl`, `zip`, `intl`, `sqlite3`, `fpm`
 - Installs Composer
-- Installs Node.js 18.x (if needed for frontend assets)
+- Installs Node.js 22.x (required for frontend assets)
 - Installs MariaDB/MySQL 10.6+
 
 ### Pelican Panel
