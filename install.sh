@@ -1772,83 +1772,95 @@ update_panel() {
     
     cd "$PANEL_DIR"
     
-    info "Backing up current installation..."
-    BACKUP_DIR="${PANEL_DIR}.backup.$(date +%Y%m%d_%H%M%S)"
-    cp -r "$PANEL_DIR" "$BACKUP_DIR" 2>/dev/null || {
-        error "Failed to create backup"
+    OWNER=$(stat -c '%U' "$PANEL_DIR" 2>/dev/null || echo "$SERVICE_USER")
+    GROUP=$(stat -c '%G' "$PANEL_DIR" 2>/dev/null || echo "$SERVICE_USER")
+    
+    DB_CONNECTION=$(grep "^DB_CONNECTION=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d "\"' " || echo "mysql")
+    
+    info "Creating backup..."
+    BACKUP_DIR="$PANEL_DIR/backup"
+    mkdir -p "$BACKUP_DIR/storage/app" || {
+        error "Failed to create backup directory"
         exit 1
     }
     
-    info "Pulling latest changes..."
-    if [ -d "$PANEL_DIR/.git" ]; then
-        sudo -u "$SERVICE_USER" git fetch --all
-        sudo -u "$SERVICE_USER" git pull origin main || sudo -u "$SERVICE_USER" git pull origin master
-    else
-        TEMP_DIR=$(mktemp -d)
-        cd "$TEMP_DIR"
-        curl -L -o panel.tar.gz https://github.com/pelican-dev/panel/releases/latest/download/panel.tar.gz || {
-            error "Failed to download latest Panel"
-            rm -rf "$TEMP_DIR"
-            exit 1
+    cp -a "$PANEL_DIR/.env" "$BACKUP_DIR/.env.backup" || {
+        error "Failed to backup .env file"
+        exit 1
+    }
+    
+    if [ -d "$PANEL_DIR/storage/app/public" ]; then
+        cp -a "$PANEL_DIR/storage/app/public" "$BACKUP_DIR/storage/app/" || {
+            warning "Failed to backup storage/app/public"
         }
-        tar -xzf panel.tar.gz
-        
-        if [ -d "panel" ]; then
-            cp -r panel/* "$PANEL_DIR/" 2>/dev/null || true
-            cp -r panel/.* "$PANEL_DIR/" 2>/dev/null || true
-        elif [ -f "composer.json" ]; then
-            cp -r * "$PANEL_DIR/" 2>/dev/null || true
-            cp -r .* "$PANEL_DIR/" 2>/dev/null || true
-        else
-            EXTRACTED_DIR=$(find . -maxdepth 1 -type d ! -name . | head -1)
-            if [ -n "$EXTRACTED_DIR" ] && [ -f "$EXTRACTED_DIR/composer.json" ]; then
-                cp -r "$EXTRACTED_DIR"/* "$PANEL_DIR/" 2>/dev/null || true
-                cp -r "$EXTRACTED_DIR"/.* "$PANEL_DIR/" 2>/dev/null || true
-            fi
-        fi
-        rm -rf "$TEMP_DIR"
-        cd "$PANEL_DIR"
     fi
     
+    if [ "$DB_CONNECTION" = "sqlite" ]; then
+        DB_DATABASE=$(grep "^DB_DATABASE=" "$PANEL_DIR/.env" | cut -d'=' -f2 | tr -d "\"' " || echo "database.sqlite")
+        if [[ "$DB_DATABASE" != *.sqlite ]]; then
+            DB_DATABASE="$DB_DATABASE.sqlite"
+        fi
+        if [ -f "$PANEL_DIR/database/$DB_DATABASE" ]; then
+            cp -a "$PANEL_DIR/database/$DB_DATABASE" "$BACKUP_DIR/$DB_DATABASE.backup" || {
+                warning "Failed to backup SQLite database"
+            }
+        fi
+    fi
+    
+    info "Entering maintenance mode..."
+    sudo -u "$OWNER" php artisan down || true
+    
+    info "Downloading latest Panel release..."
+    cd "$PANEL_DIR"
+    curl -L https://github.com/pelican-dev/panel/releases/latest/download/panel.tar.gz | tar -xzv || {
+        error "Failed to download Panel update"
+        sudo -u "$OWNER" php artisan up || true
+        exit 1
+    }
+    
+    info "Setting permissions..."
+    chmod -R 755 "$PANEL_DIR"
+    chmod -R 775 "$PANEL_DIR/storage" "$PANEL_DIR/bootstrap/cache" 2>/dev/null || true
+    chown -R "$OWNER:$GROUP" "$PANEL_DIR"
+    
     info "Updating PHP dependencies..."
-    COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$SERVICE_USER" composer install --no-dev --optimize-autoloader --no-interaction || {
+    COMPOSER_ALLOW_SUPERUSER=1 sudo -u "$OWNER" composer install --no-dev --optimize-autoloader --no-interaction || {
         error "Failed to update PHP dependencies"
-        info "Restoring from backup..."
-        rm -rf "$PANEL_DIR"
-        mv "$BACKUP_DIR" "$PANEL_DIR"
+        sudo -u "$OWNER" php artisan up || true
         exit 1
     }
     
     info "Clearing caches..."
-    sudo -u "$SERVICE_USER" php artisan config:clear
-    sudo -u "$SERVICE_USER" php artisan cache:clear
-    sudo -u "$SERVICE_USER" php artisan view:clear
+    sudo -u "$OWNER" php artisan config:clear
+    sudo -u "$OWNER" php artisan cache:clear
+    sudo -u "$OWNER" php artisan view:clear
     
     info "Running migrations..."
-    sudo -u "$SERVICE_USER" php artisan migrate --force || {
+    sudo -u "$OWNER" php artisan migrate --force || {
         warning "Migrations failed, but continuing..."
     }
     
     if [ -f "$PANEL_DIR/package.json" ]; then
-        info "Updating frontend assets..."
+        info "Rebuilding frontend assets..."
         if [ -f "$PANEL_DIR/package-lock.json" ]; then
-            sudo -u "$SERVICE_USER" npm ci --legacy-peer-deps || {
-                sudo -u "$SERVICE_USER" npm install --legacy-peer-deps
+            sudo -u "$OWNER" npm ci --legacy-peer-deps || {
+                sudo -u "$OWNER" npm install --legacy-peer-deps
             }
         else
-            sudo -u "$SERVICE_USER" npm install --legacy-peer-deps
+            sudo -u "$OWNER" npm install --legacy-peer-deps
         fi
-        sudo -u "$SERVICE_USER" npm run build || {
+        sudo -u "$OWNER" npm run build || {
             warning "Failed to build assets"
         }
     fi
     
     info "Optimizing application..."
-    sudo -u "$SERVICE_USER" php artisan config:cache
-    sudo -u "$SERVICE_USER" php artisan route:cache
-    sudo -u "$SERVICE_USER" php artisan view:cache
+    sudo -u "$OWNER" php artisan config:cache
+    sudo -u "$OWNER" php artisan route:cache
+    sudo -u "$OWNER" php artisan view:cache
     
-    chown -R "$SERVICE_USER:$SERVICE_USER" "$PANEL_DIR"
+    info "Exiting maintenance mode..."
+    sudo -u "$OWNER" php artisan up || true
     
     info "Restarting Panel service..."
     systemctl restart pelican-panel || {
@@ -1869,24 +1881,26 @@ update_wings() {
     
     check_root
     
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "x86_64" ]; then
+        ARCH="amd64"
+    elif [ "$ARCH" = "aarch64" ]; then
+        ARCH="arm64"
+    else
+        ARCH="amd64"
+    fi
+    
     info "Stopping Wings service..."
     systemctl stop pelican-wings 2>/dev/null || true
     
-    info "Backing up current Wings binary..."
-    cp /usr/local/bin/wings /usr/local/bin/wings.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
-    
     info "Downloading latest Wings..."
-    curl -L -o /usr/local/bin/wings https://github.com/pelican-dev/wings/releases/latest/download/wings_linux_amd64 || {
+    curl -L -o /usr/local/bin/wings "https://github.com/pelican-dev/wings/releases/latest/download/wings_linux_${ARCH}" || {
         error "Failed to download Wings"
-        if [ -f /usr/local/bin/wings.backup.* ]; then
-            info "Restoring from backup..."
-            cp /usr/local/bin/wings.backup.* /usr/local/bin/wings
-        fi
         systemctl start pelican-wings 2>/dev/null || true
         exit 1
     }
     
-    chmod +x /usr/local/bin/wings
+    chmod u+x /usr/local/bin/wings
     chown "$SERVICE_USER:$SERVICE_USER" /usr/local/bin/wings
     
     info "Starting Wings service..."
