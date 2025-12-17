@@ -102,7 +102,7 @@ detect_os() {
             PKG_MANAGER="apt"
             ;;
         debian)
-            if [[ "$OS_VERSION" == "12" ]]; then
+            if [[ "$OS_VERSION" == "13" || "$OS_VERSION" == "12" ]]; then
                 success "Detected: $OS_TYPE $OS_VERSION"
             elif [[ "$OS_VERSION" == "11" ]]; then
                 warning "Debian $OS_VERSION detected - Partially Supported (No SQLite Support)"
@@ -114,7 +114,7 @@ detect_os() {
                 fi
             else
                 error "Debian $OS_VERSION is not supported!"
-                error "Supported versions: 12 (Fully), 11 (Partially - No SQLite)"
+                error "Supported versions: 13 (Fully), 12 (Fully), 11 (Partially - No SQLite)"
                 exit 1
             fi
             PKG_MANAGER="apt"
@@ -143,7 +143,7 @@ detect_os() {
             ;;
         *)
             error "Unsupported operating system: $OS_TYPE"
-            info "Fully Supported: Ubuntu 22.04/24.04, Debian 12, Alma Linux 10, Rocky Linux 10, CentOS 10"
+            info "Fully Supported: Ubuntu 22.04/24.04, Debian 13/12, Alma Linux 10, Rocky Linux 10, CentOS 10"
             info "Partially Supported: Debian 11, Alma Linux 9/8, Rocky Linux 9/8 (No SQLite)"
             exit 1
             ;;

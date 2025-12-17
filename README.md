@@ -10,6 +10,7 @@ Automated installation script for Pelican Panel and Wings following official Pel
 |-----------------|---------|--------|
 | **Ubuntu** | 22.04 | ✅ Fully Supported |
 | **Ubuntu** | 24.04 | ✅ Fully Supported (Recommended) |
+| **Debian** | 13 | ✅ Fully Supported |
 | **Debian** | 12 | ✅ Fully Supported |
 | **Alma Linux** | 10 | ✅ Fully Supported |
 | **Rocky Linux** | 10 | ✅ Fully Supported |
