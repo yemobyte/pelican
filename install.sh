@@ -341,6 +341,7 @@ EOF
   # Cron
   (crontab -l 2>/dev/null; echo "* * * * * php $PANEL_DIR/artisan schedule:run >> /dev/null 2>&1") | crontab -
 
+  fix_permissions
   configure_firewall
 
   success "Panel Installation Complete"
@@ -450,17 +451,43 @@ EOF
   fi
 }
 
+fix_permissions() {
+  output "Fixing Panel Permissions..."
+  chmod -R 755 $PANEL_DIR/storage $PANEL_DIR/bootstrap/cache
+  chown -R $PHP_USER:$PHP_USER $PANEL_DIR
+  output "Permissions fixed."
+}
+
 troubleshooting() {
   print_brake 70
   output "Troubleshooting Guide"
   output "Documentation: https://pelican.dev/docs/troubleshooting"
   output ""
-  output "Common checks running now..."
+  output "What would you like to do?"
+  output "[0] Check Services Status"
+  output "[1] Fix Panel Permissions (Fixes 500 Errors)"
+  output "[2] View Panel Logs"
   
-  output "1. Checking Services..."
-  systemctl is-active --quiet nginx && echo "  - Nginx: UP" || echo "  - Nginx: DOWN"
-  systemctl is-active --quiet pelican-worker && echo "  - Queue: UP" || echo "  - Queue: DOWN"
-  systemctl is-active --quiet docker && echo "  - Docker: UP" || echo "  - Docker: DOWN"
+  echo -n "* Input 0-2: "
+  read -r t_action
+  
+  case $t_action in
+    0)
+      output "Checking Services..."
+      systemctl is-active --quiet nginx && echo "  - Nginx: UP" || echo "  - Nginx: DOWN"
+      systemctl is-active --quiet pelican-worker && echo "  - Queue: UP" || echo "  - Queue: DOWN"
+      systemctl is-active --quiet docker && echo "  - Docker: UP" || echo "  - Docker: DOWN"
+      ;;
+    1)
+      fix_permissions
+      ;;
+    2)
+      tail -n 20 $PANEL_DIR/storage/logs/laravel.log
+      ;;
+    *)
+      error "Invalid option"
+      ;;
+  esac
   
   print_brake 70
 }
