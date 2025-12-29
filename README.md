@@ -28,9 +28,14 @@ curl -L https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh -o in
 
 ## Supported Operating Systems
 
-| **Debian** | **12 (Bookworm)** | ✅ **Verified** |
-| Ubuntu | 22.04 / 24.04 | ⚠️ Should work (Untested) |
-| CentOS / RHEL | Any | ❌ Not Supported |
+| Operating System | Version | Supported | Notes |
+| :--- | :--- | :--- | :--- |
+| **Debian** | 12 (Bookworm) | ✅ Verified | Primary development OS. |
+| **Ubuntu** | 22.04 / 24.04 | ✅ Verified | Fully supported. |
+| **AlmaLinux** | 9 / 10 | ✅ Verified | Supported via DNF. |
+| **Rocky Linux** | 9 / 10 | ✅ Verified | Supported via DNF. |
+| **CentOS Stream** | 9 / 10 | ✅ Verified | Supported via DNF. |
+| **RHEL** | 9 / 10 | ✅ Verified | Supported via DNF. |
 
 ## Usage
 The script provides an interactive menu:
