@@ -450,11 +450,12 @@ EOF
   read -r DEPLOY_CMD
   if [[ ! -z "$DEPLOY_CMD" ]]; then
       eval "$DEPLOY_CMD"
-      systemctl enable --now wings
+      sudo systemctl enable --now wings
       success "Wings Configured & Started!"
   else
-      systemctl enable wings
+      sudo systemctl enable wings
       output "Skipping auto-deploy. Remember to configure and start wings manually."
+      output "Command to start wings: sudo systemctl enable --now wings"
   fi
 }
 
