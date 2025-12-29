@@ -466,9 +466,11 @@ troubleshooting() {
   output "What would you like to do?"
   output "[0] Check Services Status"
   output "[1] Fix Panel Permissions (Fixes 500 Errors)"
-  output "[2] View Panel Logs"
+  output "[2] View Panel Logs (Last 100 lines)"
+  output "[3] View Nginx Logs (Last 50 Error lines)"
+  output "[4] Check Panel Database Connectivity"
   
-  echo -n "* Input 0-2: "
+  echo -n "* Input 0-4: "
   read -r t_action
   
   case $t_action in
@@ -477,12 +479,33 @@ troubleshooting() {
       systemctl is-active --quiet nginx && echo "  - Nginx: UP" || echo "  - Nginx: DOWN"
       systemctl is-active --quiet pelican-worker && echo "  - Queue: UP" || echo "  - Queue: DOWN"
       systemctl is-active --quiet docker && echo "  - Docker: UP" || echo "  - Docker: DOWN"
+      (crontab -l 2>/dev/null | grep -q "artisan schedule:run") && echo "  - Cron: INSTALLED" || echo "  - Cron: MISSING"
       ;;
     1)
       fix_permissions
       ;;
     2)
-      tail -n 20 $PANEL_DIR/storage/logs/laravel.log
+      if [ -f "$PANEL_DIR/storage/logs/laravel.log" ]; then
+          tail -n 100 "$PANEL_DIR/storage/logs/laravel.log"
+      else
+          error "Panel log file not found."
+      fi
+      ;;
+    3)
+      if [ -f "/var/log/nginx/error.log" ]; then
+          tail -n 50 "/var/log/nginx/error.log"
+      else
+          error "Nginx error log not found."
+      fi
+      ;;
+    4)
+      output "Checking Database Connection..."
+      if [ -f "$PANEL_DIR/.env" ]; then
+          cd "$PANEL_DIR"
+          php artisan db:monitor
+      else
+          error ".env file not found."
+      fi
       ;;
     *)
       error "Invalid option"
