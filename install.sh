@@ -224,6 +224,7 @@ install_panel() {
 
   # Update .env
   sed -i "s|APP_URL=http://localhost|APP_URL=${SITE_URL}|g" .env
+  sed -i "s|APP_URL=http://panel.test|APP_URL=${SITE_URL}|g" .env
   sed -i "s|DB_CONNECTION=mysql|DB_CONNECTION=mysql|g" .env
   sed -i "s|DB_HOST=127.0.0.1|DB_HOST=127.0.0.1|g" .env
   sed -i "s|DB_PORT=3306|DB_PORT=3306|g" .env
