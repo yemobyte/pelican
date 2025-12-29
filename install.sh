@@ -541,46 +541,6 @@ fix_permissions() {
   output "Permissions fixed."
 }
 
-backup_database() {
-  output "Backing up Panel Database..."
-  mkdir -p $PANEL_DIR/backups
-  
-  # Ensure zip is installed
-  if ! command -v zip &> /dev/null; then
-    output "Installing zip..."
-    if [ "$PACKAGE_MANAGER" == "apt" ]; then
-      apt install -y zip
-    elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
-      dnf install -y zip
-    fi
-  fi
-
-  BACKUP_NAME="panel-backup-$(date +%F_%H-%M)"
-  SQL_FILE="$PANEL_DIR/backups/$BACKUP_NAME.sql"
-  ZIP_FILE="$PANEL_DIR/backups/$BACKUP_NAME.zip"
-  
-  # Retrieve credentials if not set
-  if [ -f "$PANEL_DIR/.env" ]; then
-    DB_PASS=$(grep "^DB_PASSWORD=" $PANEL_DIR/.env | cut -d '=' -f2)
-  fi
-  
-  if [ -z "$DB_PASS" ]; then
-    error "Could not find checked database password in .env"
-    return
-  fi
-  
-  # Dump and Zip
-  mysqldump -u pelican -p"$DB_PASS" pelican > "$SQL_FILE"
-  cd "$PANEL_DIR/backups" || return
-  zip -q "$ZIP_FILE" "$BACKUP_NAME.sql"
-  rm "$SQL_FILE"
-  
-  # Set permissions so panel user can access/download it if needed
-  chown $PHP_USER:$PHP_USER "$ZIP_FILE"
-  
-  success "Backup saved to: $ZIP_FILE"
-}
-
 troubleshooting() {
   print_brake 70
   output "Troubleshooting Guide"
@@ -592,9 +552,8 @@ troubleshooting() {
   output "[2] View Panel Logs (Last 100 lines)"
   output "[3] View Nginx Logs (Last 50 Error lines)"
   output "[4] Check Panel Database Connectivity"
-  output "[5] Backup Panel Database"
   
-  echo -n "* Input 0-5: "
+  echo -n "* Input 0-4: "
   read -r t_action
   
   case $t_action in
@@ -630,9 +589,6 @@ troubleshooting() {
       else
           error ".env file not found."
       fi
-      ;;
-    5)
-      backup_database
       ;;
     *)
       error "Invalid option"

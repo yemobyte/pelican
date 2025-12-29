@@ -16,7 +16,6 @@ A fully automated installation script for **Pelican Panel** and **Wings**, desig
     *   **Fix Permissions**: One-click fix for "500 Server Error".
     *   **Log Viewer**: View Panel, Nginx, and System logs directly.
     *   **Diagnostics**: Checks Database, Cron, and Service status.
-    *   **Backup Database**: Easily backup your panel database to a local file.
 *   **Uninstaller**: Cleanly removes Panel or Wings.
 
 ## Installation
@@ -48,6 +47,8 @@ The script provides an interactive menu:
 5.  **Troubleshooting**: Checks status of Nginx, Docker, and Queue Worker.
 
 ## Disclaimer
-This script is not associated with the official Pelican project. Use at your own risk.
+**Unofficial Installer**: This script is an independent project and is **NOT** associated with, endorsed by, or affiliated with the official Pelican project.
+It is provided "as is" without warranty of any kind. Use it at your own risk.
 
-Copyright (c) 2025 yemobyte
+## Copyright
+Copyright (c) 2025 [yemobyte](https://github.com/yemobyte)
