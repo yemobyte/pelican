@@ -3,14 +3,12 @@
 # Pelican Panel & Wings Installer
 # Copyright (c) 2025 yemobyte
 # Based on Pterodactyl Installer style
-# Supports Debian 12
+# Supports Debian 11/12, Ubuntu 22.04/24.04, AlmaLinux 9/10, Rocky Linux 9/10
 
 set -e
 
 # Versioning
-export SCRIPT_RELEASE="v2.3"
-export OS="Debian"
-export OS_VER="12"
+export SCRIPT_RELEASE="v2.4"
 export PANEL_DIR="/var/www/pelican"
 export SITE_URL="http://$(curl -4 -s ifconfig.me)"
 
@@ -50,17 +48,6 @@ print_brake() {
   echo ""
 }
 
-welcome() {
-  print_brake 70
-  output "Pelican panel installation script @ $SCRIPT_RELEASE"
-  output ""
-  output "Copyright (C) 2025, yemobyte"
-  output "https://pelican.dev"
-  output ""
-  output "Running $OS version $OS_VER."
-  print_brake 70
-}
-
 # -------------- Core functions -------------- #
 check_root() {
   if [[ $EUID -ne 0 ]]; then
@@ -69,42 +56,116 @@ check_root() {
   fi
 }
 
-configure_firewall() {
-  output "Configuring firewall (UFW)..."
-  if ! command -v ufw &> /dev/null; then
-     apt install -y ufw
+detect_os() {
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$NAME
+    OS_VER=$VERSION_ID
+  else
+    error "Unsupported OS: could not detect os-release"
+    exit 1
   fi
-  
-  ufw allow 22
-  ufw allow 80
-  ufw allow 443
-  ufw allow 8080
-  ufw allow 2022
-  echo "y" | ufw enable
+
+  case "$ID" in
+    debian|ubuntu)
+      export PACKAGE_MANAGER="apt"
+      export PHP_USER="www-data"
+      export NGINX_USER="www-data"
+      export NGINX_CONF_DIR="/etc/nginx/sites-available"
+      export NGINX_ENABLED_DIR="/etc/nginx/sites-enabled"
+      ;;
+    almalinux|rocky|centos|rhel)
+      export PACKAGE_MANAGER="dnf"
+      export PHP_USER="nginx" # Usually nginx or apache on RHEL
+      export NGINX_USER="nginx"
+      export NGINX_CONF_DIR="/etc/nginx/conf.d"
+      export NGINX_ENABLED_DIR="" # RHEL doesn't use sites-enabled by default
+      ;;
+    *)
+      error "Unsupported OS: $ID"
+      exit 1
+      ;;
+  esac
+}
+
+configure_firewall() {
+  output "Configuring firewall..."
+  if [ "$PACKAGE_MANAGER" == "apt" ]; then
+      if ! command -v ufw &> /dev/null; then
+         apt install -y ufw
+      fi
+      ufw allow 22
+      ufw allow 80
+      ufw allow 443
+      ufw allow 8080
+      ufw allow 2022
+      echo "y" | ufw enable
+  elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
+      if ! command -v firewall-cmd &> /dev/null; then
+         dnf install -y firewalld
+         systemctl enable --now firewalld
+      fi
+      firewall-cmd --permanent --add-service=http
+      firewall-cmd --permanent --add-service=https
+      firewall-cmd --permanent --add-port=8080/tcp
+      firewall-cmd --permanent --add-port=2022/tcp
+      firewall-cmd --reload
+  fi
 }
 
 install_dependencies() {
-  output "Updating system and installing dependencies..."
-  apt update -q && apt upgrade -y -q
-  apt install -y -q lsb-release ca-certificates apt-transport-https software-properties-common gnupg2 curl zip unzip git socat cron ufw
+  output "Updating system and installing dependencies for $OS..."
+  
+  if [ "$PACKAGE_MANAGER" == "apt" ]; then
+      apt update -q && apt upgrade -y -q
+      apt install -y -q lsb-release ca-certificates apt-transport-https software-properties-common gnupg2 curl zip unzip git socat cron ufw
 
-  # PHP Repo
-  if [ ! -f /etc/apt/sources.list.d/php.list ]; then
-    curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg
-    sh -c 'echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list'
-    apt update -q
+      # PHP Repo
+      if [ "$ID" == "ubuntu" ]; then
+           add-apt-repository -y ppa:ondrej/php
+           apt update -q
+      else
+           if [ ! -f /etc/apt/sources.list.d/php.list ]; then
+               curl -sSLo /usr/share/keyrings/deb.sury.org-php.gpg https://packages.sury.org/php/apt.gpg
+               sh -c 'echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/php.list'
+               apt update -q
+           fi
+      fi
+  elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
+      dnf update -y
+      dnf install -y epel-release
+      
+      # Remi Repo for PHP
+      if [ "$ID" == "centos" ] || [ "$ID" == "almalinux" ] || [ "$ID" == "rocky" ]; then
+          dnf install -y https://rpms.remirepo.net/enterprise/remi-release-${OS_VER%.*}.rpm
+      fi
+      
+      dnf install -y curl zip unzip git socat cronie
+      systemctl enable --now crond
   fi
 }
 
 install_panel() {
   output "Installing Pelican Panel..."
 
-  # PHP 8.3
-  apt install -y -q php8.3 php8.3-{cli,common,gd,mysql,mbstring,bcmath,xml,curl,zip,intl,sqlite3,fpm}
-  update-alternatives --set php /usr/bin/php8.3 2>/dev/null || true
+  # Install PHP & Extensions
+  if [ "$PACKAGE_MANAGER" == "apt" ]; then
+      apt install -y -q php8.3 php8.3-{cli,common,gd,mysql,mbstring,bcmath,xml,curl,zip,intl,sqlite3,fpm}
+      update-alternatives --set php /usr/bin/php8.3 2>/dev/null || true
+  elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
+      dnf module reset php -y
+      dnf module enable php:remi-8.3 -y
+      dnf install -y php php-{cli,common,gd,mysqlnd,mbstring,bcmath,xml,curl,zip,intl,pdo,fpm}
+  fi
 
-  # MariaDB
-  apt install -y -q mariadb-server
+  # Database
+  if [ "$PACKAGE_MANAGER" == "apt" ]; then
+      apt install -y -q mariadb-server
+      systemctl enable --now mariadb
+  elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
+      dnf install -y mariadb-server
+      systemctl enable --now mariadb
+  fi
 
   # Composer
   if ! command -v composer &> /dev/null; then
@@ -115,7 +176,16 @@ install_panel() {
   mkdir -p "$PANEL_DIR"
   cd "$PANEL_DIR"
   curl -L https://github.com/pelican-dev/panel/releases/latest/download/panel.tar.gz | tar -xzv
+  
+  # Permissions
   chmod -R 755 storage/* bootstrap/cache/
+  if [ "$PACKAGE_MANAGER" == "dnf" ]; then
+      chown -R nginx:nginx "$PANEL_DIR"
+      PHP_USER="nginx"
+  else
+      chown -R www-data:www-data "$PANEL_DIR"
+      PHP_USER="www-data"
+  fi
 
   # Install Deps
   export COMPOSER_ALLOW_SUPERUSER=1
@@ -168,11 +238,35 @@ install_panel() {
 
   # Nginx
   output "Configuring Nginx..."
-  apt install -y -q nginx
-  systemctl enable nginx
-  rm -f /etc/nginx/sites-enabled/default
+  if [ "$PACKAGE_MANAGER" == "apt" ]; then
+      apt install -y -q nginx
+      rm -f /etc/nginx/sites-enabled/default
+  elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
+      dnf install -y nginx
+  fi
+  
+  systemctl enable --now nginx
 
-  cat <<EOF > /etc/nginx/sites-available/pelican.conf
+  # Determine proper PHP-FPM socket path
+  if [ "$PACKAGE_MANAGER" == "apt" ]; then
+      FPM_SOCKET="unix:/run/php/php8.3-fpm.sock"
+  else
+      # RHEL usually uses /run/php-fpm/www.sock or requires specific config, assume default
+      # Make sure php-fpm listens on socket or start service
+      systemctl enable --now php-fpm
+      FPM_SOCKET="unix:/run/php-fpm/www.sock"
+      # Sometimes default is 127.0.0.1:9000 on RHEL, checking...
+      # If using Remi, usually /var/opt/remi/php83/run/php-fpm/www.sock
+      # We will try standard RHEL 9 config path
+      if [ -S /run/php-fpm/www.sock ]; then
+          FPM_SOCKET="unix:/run/php-fpm/www.sock"
+      else
+          # Fallback to standard
+          FPM_SOCKET="unix:/var/run/php-fpm/www.sock"
+      fi
+  fi
+
+  cat <<EOF > $NGINX_CONF_DIR/pelican.conf
 server {
     listen 80;
     server_name _;
@@ -186,7 +280,7 @@ server {
 
     location ~ \.php$ {
         fastcgi_split_path_info ^(.+\.php)(/.+)$;
-        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_pass $FPM_SOCKET;
         fastcgi_index index.php;
         include fastcgi_params;
         fastcgi_param PHP_VALUE "upload_max_filesize = 100M \n post_max_size=100M";
@@ -205,7 +299,11 @@ server {
     }
 }
 EOF
-  ln -sf /etc/nginx/sites-available/pelican.conf /etc/nginx/sites-enabled/pelican.conf
+
+  if [ ! -z "$NGINX_ENABLED_DIR" ]; then
+      ln -sf $NGINX_CONF_DIR/pelican.conf $NGINX_ENABLED_DIR/pelican.conf
+  fi
+  
   systemctl restart nginx
 
   # Queue Worker
@@ -216,8 +314,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=www-data
-Group=www-data
+User=$PHP_USER
+Group=$PHP_USER
 Restart=always
 ExecStart=/usr/bin/php $PANEL_DIR/artisan queue:work --queue=high,standard,low --sleep=3 --tries=3
 StartLimitInterval=0
@@ -240,23 +338,16 @@ EOF
 }
 
 install_wings() {
-  output "Installing Wings..."
+  output "Installing Wings on $OS..."
   
-  # Configure firewall for Wings
-  output "Configuring Firewall for Wings..."
-  if ! command -v ufw &> /dev/null; then
-     apt install -y ufw
-  fi
-  ufw allow 8080
-  ufw allow 2022
-  echo "y" | ufw enable
-
+  # Configure Firewall
+  configure_firewall
+  
   # Cloudflare Question
   echo -n "* Are you using Cloudflare Proxy for Wings? (y/N): "
   read -r USE_CF
   if [[ "$USE_CF" =~ [Yy] ]]; then
-      output "Note: When using Cloudflare Proxy (Orange Cloud), ensure SSL is set to Full/Strict in Cloudflare."
-      output "You will need to manually configure trusted_proxies in config if needed later."
+      output "Note: When using Cloudflare Proxy, ensure SSL is Full/Strict."
   fi
 
   # Docker
@@ -306,9 +397,6 @@ troubleshooting() {
   systemctl is-active --quiet pelican-worker && echo "  - Queue: UP" || echo "  - Queue: DOWN"
   systemctl is-active --quiet docker && echo "  - Docker: UP" || echo "  - Docker: DOWN"
   
-  output "2. Checking Disk Space..."
-  df -h / | tail -1 | awk '{print "  - Available: "$4}'
-  
   print_brake 70
 }
 
@@ -317,8 +405,10 @@ uninstall_panel() {
   rm -rf /var/www/pelican
   
   output "Removing Nginx config..."
-  rm -f /etc/nginx/sites-enabled/pelican.conf
-  rm -f /etc/nginx/sites-available/pelican.conf
+  rm -f $NGINX_CONF_DIR/pelican.conf
+  if [ ! -z "$NGINX_ENABLED_DIR" ]; then
+      rm -f $NGINX_ENABLED_DIR/pelican.conf
+  fi
   systemctl restart nginx
   
   output "Removing Queue Worker..."
@@ -336,7 +426,7 @@ uninstall_wings() {
   output "Stopping Wings..."
   systemctl disable --now wings 2>/dev/null || true
   
-  output "Removing Wings binary and configs..."
+  output "Removing Wings files..."
   rm -f /usr/local/bin/wings
   rm -f /etc/systemd/system/wings.service
   rm -rf /etc/pelican
@@ -375,6 +465,7 @@ perform_uninstall() {
 
 # Main Loop
 check_root
+detect_os
 welcome
 
 done=false
