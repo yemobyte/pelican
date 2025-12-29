@@ -382,6 +382,12 @@ install_wings() {
   curl -L -o /usr/local/bin/wings "https://github.com/pelican-dev/wings/releases/latest/download/wings_linux_amd64"
   chmod u+x /usr/local/bin/wings
 
+  # Check and kill likely existing wings process
+  if lsof -i :8080 -t >/dev/null; then
+    output "Freeing port 8080..."
+    kill -9 $(lsof -i :8080 -t) 2>/dev/null || true
+  fi
+
   # Systemd
   cat <<EOF > /etc/systemd/system/wings.service
 [Unit]
