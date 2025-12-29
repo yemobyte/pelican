@@ -48,6 +48,17 @@ print_brake() {
   echo ""
 }
 
+welcome() {
+  print_brake 70
+  output "Pelican panel installation script @ $SCRIPT_RELEASE"
+  output ""
+  output "Copyright (C) 2025, yemobyte"
+  output "https://pelican.dev"
+  output ""
+  output "Running $OS version $OS_VER."
+  print_brake 70
+}
+
 # -------------- Core functions -------------- #
 check_root() {
   if [[ $EUID -ne 0 ]]; then
