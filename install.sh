@@ -560,7 +560,10 @@ backup_database() {
   ZIP_FILE="$PANEL_DIR/backups/$BACKUP_NAME.zip"
   
   # Retrieve credentials if not set
-  DB_PASS=$(grep "DB_PASSWORD=" $PANEL_DIR/.env | cut -d '=' -f2)
+  if [ -f "$PANEL_DIR/.env" ]; then
+    DB_PASS=$(grep "^DB_PASSWORD=" $PANEL_DIR/.env | cut -d '=' -f2)
+  fi
+  
   if [ -z "$DB_PASS" ]; then
     error "Could not find checked database password in .env"
     return
