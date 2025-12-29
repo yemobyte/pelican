@@ -343,9 +343,18 @@ EOF
   configure_firewall
 
   success "Panel Installation Complete"
-  output "URL: ${SITE_URL}"
-  output "User: admin"
-  output "Pass: ${ADMIN_PASS}"
+  print_brake 70
+  output "Pelican Panel $SCRIPT_RELEASE with Nginx on $OS $OS_VER"
+  output "Database Name: pelican"
+  output "Database User: pelican"
+  output "Database Password: $DB_PASS"
+  output "Website URL: $SITE_URL"
+  output "User Email: admin@pelican.local"
+  output "Username: admin"
+  output "User Password: $ADMIN_PASS"
+  output "Timezone: $(timedatectl | grep "Time zone" | awk '{print $3}')"
+  output "Configure Firewall? true"
+  print_brake 70
 }
 
 install_wings() {
