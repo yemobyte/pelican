@@ -1,6 +1,8 @@
-# Pelican Panel & Wings Installer
+# Pelican Panel & Wings Auto-Installer
 
 A fully automated installation script for **Pelican Panel** and **Wings**, designed with a user-friendly menu interface similar to the popular Pterodactyl installer.
+
+![Pelican Installer Screenshot](public/screenshot.png)
 
 ## Features
 
@@ -16,6 +18,7 @@ A fully automated installation script for **Pelican Panel** and **Wings**, desig
     *   **Fix Permissions**: One-click fix for "500 Server Error".
     *   **Log Viewer**: View Panel, Nginx, and System logs directly.
     *   **Diagnostics**: Checks Database, Cron, and Service status.
+    *   **Backup Database**: Easily backup your panel database to a local file.
 *   **Uninstaller**: Cleanly removes Panel or Wings.
 
 ## Installation
@@ -28,15 +31,15 @@ bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.s
 
 ## Supported Operating Systems
 
-| Operating System | Version | Status | Architecture |
-| :--- | :--- | :---: | :---: |
-| **Debian** | 12 (Bookworm) | 🟢 Supported | amd64 / arm64 |
-| **Ubuntu** | 22.04 LTS | 🟢 Supported | amd64 / arm64 |
-| **Ubuntu** | 24.04 LTS | 🟢 Supported | amd64 / arm64 |
-| **AlmaLinux** | 9 / 10 | 🟢 Supported | amd64 / arm64 |
-| **Rocky Linux** | 9 / 10 | 🟢 Supported | amd64 / arm64 |
-| **CentOS Stream** | 9 / 10 | 🟢 Supported | amd64 / arm64 |
-| **RHEL** | 9 / 10 | 🟢 Supported | amd64 / arm64 |
+| Operating System | Version | Status |
+| :--- | :--- | :---: |
+| **Debian** | 12 (Bookworm) | 🟢 Supported |
+| **Ubuntu** | 22.04 LTS | 🟢 Supported |
+| **Ubuntu** | 24.04 LTS | 🟢 Supported |
+| **AlmaLinux** | 9 / 10 | 🟢 Supported |
+| **Rocky Linux** | 9 / 10 | 🟢 Supported |
+| **CentOS Stream** | 9 / 10 | 🟢 Supported |
+| **RHEL** | 9 / 10 | 🟢 Supported |
 
 ## Usage
 The script provides an interactive menu:

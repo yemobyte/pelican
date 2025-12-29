@@ -541,6 +541,22 @@ fix_permissions() {
   output "Permissions fixed."
 }
 
+backup_database() {
+  output "Backing up Panel Database..."
+  mkdir -p $PANEL_DIR/backups
+  BACKUP_FILE="$PANEL_DIR/backups/panel-backup-$(date +%F_%H-%M).sql"
+  
+  # Retrieve credentials if not set
+  DB_PASS=$(grep "DB_PASSWORD=" $PANEL_DIR/.env | cut -d '=' -f2)
+  if [ -z "$DB_PASS" ]; then
+    error "Could not find checked database password in .env"
+    return
+  fi
+  
+  mysqldump -u pelican -p"$DB_PASS" pelican > "$BACKUP_FILE"
+  output "Backup saved to: $BACKUP_FILE"
+}
+
 troubleshooting() {
   print_brake 70
   output "Troubleshooting Guide"
@@ -552,8 +568,9 @@ troubleshooting() {
   output "[2] View Panel Logs (Last 100 lines)"
   output "[3] View Nginx Logs (Last 50 Error lines)"
   output "[4] Check Panel Database Connectivity"
+  output "[5] Backup Panel Database"
   
-  echo -n "* Input 0-4: "
+  echo -n "* Input 0-5: "
   read -r t_action
   
   case $t_action in
@@ -589,6 +606,9 @@ troubleshooting() {
       else
           error ".env file not found."
       fi
+      ;;
+    5)
+      backup_database
       ;;
     *)
       error "Invalid option"
