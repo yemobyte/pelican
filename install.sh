@@ -544,7 +544,20 @@ fix_permissions() {
 backup_database() {
   output "Backing up Panel Database..."
   mkdir -p $PANEL_DIR/backups
-  BACKUP_FILE="$PANEL_DIR/backups/panel-backup-$(date +%F_%H-%M).sql"
+  
+  # Ensure zip is installed
+  if ! command -v zip &> /dev/null; then
+    output "Installing zip..."
+    if [ "$PACKAGE_MANAGER" == "apt" ]; then
+      apt install -y zip
+    elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
+      dnf install -y zip
+    fi
+  fi
+
+  BACKUP_NAME="panel-backup-$(date +%F_%H-%M)"
+  SQL_FILE="$PANEL_DIR/backups/$BACKUP_NAME.sql"
+  ZIP_FILE="$PANEL_DIR/backups/$BACKUP_NAME.zip"
   
   # Retrieve credentials if not set
   DB_PASS=$(grep "DB_PASSWORD=" $PANEL_DIR/.env | cut -d '=' -f2)
@@ -553,8 +566,16 @@ backup_database() {
     return
   fi
   
-  mysqldump -u pelican -p"$DB_PASS" pelican > "$BACKUP_FILE"
-  output "Backup saved to: $BACKUP_FILE"
+  # Dump and Zip
+  mysqldump -u pelican -p"$DB_PASS" pelican > "$SQL_FILE"
+  cd "$PANEL_DIR/backups" || return
+  zip -q "$ZIP_FILE" "$BACKUP_NAME.sql"
+  rm "$SQL_FILE"
+  
+  # Set permissions so panel user can access/download it if needed
+  chown $PHP_USER:$PHP_USER "$ZIP_FILE"
+  
+  success "Backup saved to: $ZIP_FILE"
 }
 
 troubleshooting() {

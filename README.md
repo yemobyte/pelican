@@ -2,8 +2,6 @@
 
 A fully automated installation script for **Pelican Panel** and **Wings**, designed with a user-friendly menu interface similar to the popular Pterodactyl installer.
 
-![Pelican Installer Screenshot](public/screenshot.png)
-
 ## Features
 
 *   **Pterodactyl-like Interface**: Familiar, easy-to-use menu system.
@@ -48,9 +46,6 @@ The script provides an interactive menu:
 3.  **Install Panel and Wings**: Sets up both on a single server (All-in-One).
 4.  **Uninstall Panel or Wings**: deeply cleans files and databases.
 5.  **Troubleshooting**: Checks status of Nginx, Docker, and Queue Worker.
-
-## Screenshots
-_(You can add screenshots here later)_
 
 ## Disclaimer
 This script is not associated with the official Pelican project. Use at your own risk.
