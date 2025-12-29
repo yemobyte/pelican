@@ -212,13 +212,36 @@ install_panel() {
   ADMIN_PASS=$(openssl rand -base64 12)
   
   # URL Input
-  echo -n "* Enter your FQDN/IP (default: $SITE_URL): "
+  echo -n "* Enter your FQDN or IP (default: $SITE_URL): "
   read -r input_url
   if [[ ! -z "$input_url" ]]; then
-      if [[ "$input_url" != http* ]]; then
-           SITE_URL="http://$input_url"
-      else
-           SITE_URL="$input_url"
+      # Strip http/https for cleaner handling
+      input_url=$(echo "$input_url" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
+      SITE_URL="http://$input_url"
+      FQDN="$input_url"
+  else
+      FQDN="localhost" # Fallback if they just hit enter on IP detection
+      if [[ "$SITE_URL" =~ ^http://([^/]+) ]]; then
+          FQDN="${BASH_REMATCH[1]}"
+      fi
+  fi
+
+  # Check if FQDN is an IP address
+  IS_IP=false
+  if [[ "$FQDN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      IS_IP=true
+  fi
+
+  # SSL Prompt
+  CONFIGURE_SSL=false
+  if [ "$IS_IP" = false ]; then
+      echo -n "* Configure Let's Encrypt SSL for Panel? (y/N): "
+      read -r ASK_SSL
+      if [[ "$ASK_SSL" =~ [Yy] ]]; then
+          CONFIGURE_SSL=true
+          SITE_URL="https://$FQDN"
+          echo -n "* Enter Email for Let's Encrypt: "
+          read -r SSL_EMAIL
       fi
   fi
 
@@ -279,7 +302,68 @@ install_panel() {
       fi
   fi
 
-  cat <<EOF > $NGINX_CONF_DIR/pelican.conf
+  # SSL Certificate Generation
+  if [ "$CONFIGURE_SSL" = true ]; then
+      output "Installing Certbot..."
+      if [ "$PACKAGE_MANAGER" == "apt" ]; then
+          apt install -y certbot
+      elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
+          dnf install -y certbot
+      fi
+
+      output "Stopping Nginx for Certificate Issuance..."
+      systemctl stop nginx 2>/dev/null || true
+      
+      output "Generating Certificate..."
+      certbot certonly --standalone -d "$FQDN" --email "$SSL_EMAIL" --agree-tos --non-interactive
+      
+      # Nginx Config for SSL
+      cat <<EOF > $NGINX_CONF_DIR/pelican.conf
+server {
+    listen 80;
+    server_name $FQDN;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name $FQDN;
+    root $PANEL_DIR/public;
+    index index.php;
+
+    ssl_certificate /etc/letsencrypt/live/$FQDN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$FQDN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_pass $FPM_SOCKET;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param PHP_VALUE "upload_max_filesize = 100M \n post_max_size=100M";
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        fastcgi_param HTTP_PROXY "";
+        fastcgi_intercept_errors off;
+        fastcgi_buffer_size 16k;
+        fastcgi_buffers 4 16k;
+        fastcgi_connect_timeout 300;
+        fastcgi_send_timeout 300;
+        fastcgi_read_timeout 300;
+    }
+
+    location ~ /\.ht {
+        deny all;
+    }
+}
+EOF
+  else
+      # Nginx Config for HTTP (IP or No SSL)
+      cat <<EOF > $NGINX_CONF_DIR/pelican.conf
 server {
     listen 80;
     server_name _;
@@ -312,6 +396,7 @@ server {
     }
 }
 EOF
+  fi
 
   if [ ! -z "$NGINX_ENABLED_DIR" ]; then
       ln -sf $NGINX_CONF_DIR/pelican.conf $NGINX_ENABLED_DIR/pelican.conf
