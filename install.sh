@@ -254,6 +254,7 @@ install_panel() {
   mysql -u root -e "FLUSH PRIVILEGES;"
 
   php artisan migrate --seed --force
+  php artisan storage:link
 
   # Create User
   output "Creating Admin User..."
