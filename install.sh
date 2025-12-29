@@ -49,6 +49,7 @@ print_brake() {
 }
 
 welcome() {
+  clear
   print_brake 70
   output "Pelican panel installation script @ $SCRIPT_RELEASE"
   output ""
@@ -486,10 +487,10 @@ perform_uninstall() {
 # Main Loop
 check_root
 detect_os
-welcome
 
 done=false
 while [ "$done" == false ]; do
+  welcome
   options=(
     "Install the panel"
     "Install Wings"
