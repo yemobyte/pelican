@@ -402,8 +402,52 @@ WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
   
+  # Wings SSL Setup
+  echo -n "* Do you want to configure SSL for this Wings node? (y/N): "
+  read -r CONFIRM_SSL
+  if [[ "$CONFIRM_SSL" =~ [Yy] ]]; then
+      echo -n "* Enter Node FQDN (e.g. node1.example.com): "
+      read -r NODE_FQDN
+      echo -n "* Enter Email for Let's Encrypt: "
+      read -r SSL_EMAIL
+      
+      output "Installing Certbot..."
+      if [ "$PACKAGE_MANAGER" == "apt" ]; then
+          apt install -y certbot
+      elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
+          dnf install -y certbot
+      fi
+      
+      output "Stopping Webserver (Nginx) temporarily for certificate issuance..."
+      systemctl stop nginx 2>/dev/null || true
+      
+      output "Generating Certificate..."
+      certbot certonly --standalone -d "$NODE_FQDN" --email "$SSL_EMAIL" --agree-tos --non-interactive
+      
+      output "Restarting Webserver..."
+      systemctl start nginx 2>/dev/null || true
+      
+      success "SSL Certificate Generated!"
+      output "Certificate Path: /etc/letsencrypt/live/$NODE_FQDN/fullchain.pem"
+      output "Private Key Path: /etc/letsencrypt/live/$NODE_FQDN/privkey.pem"
+      output "IMPORTANT: Use these paths in Panel > Node > Configuration > SSL."
+  fi
+
   success "Wings Installation Complete"
   output "Configure a Node in the Panel to finish setup."
+  output "1. Go to Admin -> Nodes -> Create New."
+  output "2. Paste the auto-deploy command from the Panel here:"
+  output "   (Or manually edit /etc/pelican/config.yml)"
+  echo -n "* Paste Command (or press Enter to skip): "
+  read -r DEPLOY_CMD
+  if [[ ! -z "$DEPLOY_CMD" ]]; then
+      eval "$DEPLOY_CMD"
+      systemctl enable --now wings
+      success "Wings Configured & Started!"
+  else
+      systemctl enable wings
+      output "Skipping auto-deploy. Remember to configure and start wings manually."
+  fi
 }
 
 troubleshooting() {
