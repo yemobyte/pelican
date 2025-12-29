@@ -23,19 +23,20 @@ A fully automated installation script for **Pelican Panel** and **Wings**, desig
 Run the following command as root:
 
 ```bash
-curl -L https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh
+bash <(curl -s https://raw.githubusercontent.com/yemobyte/pelican/main/install.sh)
 ```
 
 ## Supported Operating Systems
 
-| Operating System | Version | Supported | Notes |
-| :--- | :--- | :--- | :--- |
-| **Debian** | 12 (Bookworm) | ✅ Verified | Primary development OS. |
-| **Ubuntu** | 22.04 / 24.04 | ✅ Verified | Fully supported. |
-| **AlmaLinux** | 9 / 10 | ✅ Verified | Supported via DNF. |
-| **Rocky Linux** | 9 / 10 | ✅ Verified | Supported via DNF. |
-| **CentOS Stream** | 9 / 10 | ✅ Verified | Supported via DNF. |
-| **RHEL** | 9 / 10 | ✅ Verified | Supported via DNF. |
+| Operating System | Version | Status | Architecture |
+| :--- | :--- | :---: | :---: |
+| **Debian** | 12 (Bookworm) | 🟢 Supported | amd64 / arm64 |
+| **Ubuntu** | 22.04 LTS | 🟢 Supported | amd64 / arm64 |
+| **Ubuntu** | 24.04 LTS | 🟢 Supported | amd64 / arm64 |
+| **AlmaLinux** | 9 / 10 | 🟢 Supported | amd64 / arm64 |
+| **Rocky Linux** | 9 / 10 | 🟢 Supported | amd64 / arm64 |
+| **CentOS Stream** | 9 / 10 | 🟢 Supported | amd64 / arm64 |
+| **RHEL** | 9 / 10 | 🟢 Supported | amd64 / arm64 |
 
 ## Usage
 The script provides an interactive menu:
