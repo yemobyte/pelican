@@ -101,27 +101,16 @@ detect_os() {
 }
 
 configure_firewall() {
-  output "Configuring firewall..."
+  output "Disabling firewall (per user request)..."
   if [ "$PACKAGE_MANAGER" == "apt" ]; then
-      if ! command -v ufw &> /dev/null; then
-         apt install -y ufw
+      if command -v ufw &> /dev/null; then
+         ufw disable
       fi
-      ufw allow 22
-      ufw allow 80
-      ufw allow 443
-      ufw allow 8080
-      ufw allow 2022
-      echo "y" | ufw enable
   elif [ "$PACKAGE_MANAGER" == "dnf" ]; then
-      if ! command -v firewall-cmd &> /dev/null; then
-         dnf install -y firewalld
-         systemctl enable --now firewalld
+      if command -v firewall-cmd &> /dev/null; then
+         systemctl stop firewalld 2>/dev/null || true
+         systemctl disable firewalld 2>/dev/null || true
       fi
-      firewall-cmd --permanent --add-service=http
-      firewall-cmd --permanent --add-service=https
-      firewall-cmd --permanent --add-port=8080/tcp
-      firewall-cmd --permanent --add-port=2022/tcp
-      firewall-cmd --reload
   fi
 }
 
